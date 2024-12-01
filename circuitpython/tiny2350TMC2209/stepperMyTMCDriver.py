@@ -1,5 +1,5 @@
 import board
-from tmc2209.tmc2209_uart import *
+from tmc2209.tmc2209_stepper import *
 
 pin_en = digitalio.DigitalInOut(board.GP2)
 pin_en.direction = digitalio.Direction.OUTPUT
@@ -7,8 +7,8 @@ pin_en.value=False
 
 uart = busio.UART(board.GP4, board.GP5, baudrate=115200)
 
-tmc_azm=TMC_uart(uart, mtr_id=0)
-tmc_alt=TMC_uart(uart, mtr_id=1)
+tmc_azm=TMCStepper(uart, mtr_id=0)
+tmc_alt=TMCStepper(uart, mtr_id=1)
 
 tmc_azm.set_current(300)
 tmc_azm.set_interpolation(True)

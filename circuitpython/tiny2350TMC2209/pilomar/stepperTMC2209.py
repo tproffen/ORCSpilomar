@@ -668,4 +668,4 @@ class steppermotor():
             RPi.Write(line) # Send over UART to RPi.
             # Reset the status timer.
             self.StatusTimer.Reset() # We've sent the regular status message, decide when the next is due.
-# Write your code here :-)
+

@@ -7,6 +7,86 @@ import struct
 
 from . import tmc2209_reg as reg
 
+class FakeEnumType(type):
+    def __init__(self, name, bases, namespace):
+        # print("FakeEnumType.__init__", self, name, bases)
+        #self.enumclass = type(name, (FakeEnum,), {})
+        super().__init__(name, bases, namespace)
+    def __setattr__(self, name, value):
+        # print("FakeEnumType.__setattr__")
+        if not name.startswith('_'):
+            raise AttributeError("Cannot reassign enum members")
+        super().__setattr__(name, value)
+    def __getattribute__(self, __name: str):
+        # print("FakeEnumType.__getattribute__")
+        if __name.startswith('_'):
+            return super().__getattribute__(__name)
+        return self(self.__dict__[__name])
+    def __contains__(self, item):
+        return item in self.__iter__()
+    def __iter__(self):
+        for key, value in self.__dict__.items():
+            if key.startswith('_'):
+                continue
+            try:
+                yield self(value)
+            except (TypeError, ValueError):
+                pass    # Not a valid enum value
+
+
+class Enum(FakeEnumType):
+
+    def __init__(self, value):
+        if isinstance(value, self.__class__):
+            value = value.value
+        else:
+            self.value = value
+        # print("FakeEnum.__init__")
+
+    def __eq__(self, other):
+        if isinstance(other, self.__class__):
+            return self.value == other.value
+        return NotImplemented
+
+    def __ne__(self, other):
+        result = self.__eq__(other)
+        if result is NotImplemented:
+            return result
+        return not result
+
+    def __repr__(self):
+        return f"{self.__class__.__name__} {self.value}"
+
+class Direction(Enum):
+    """movement direction of the motor"""
+    CCW = 0
+    CW = 1
+
+
+class MovementAbsRel(Enum):
+    """movement absolute or relative"""
+    ABSOLUTE = 0
+    RELATIVE = 1
+
+
+class MovementPhase(Enum):
+    """movement phase"""
+    STANDSTILL = 0
+    ACCELERATING = 1
+    MAXSPEED = 2
+    DECELERATING = 3
+
+
+class StopMode(Enum):
+    """stopmode"""
+    NO = 0
+    SOFTSTOP = 1
+    HARDSTOP = 2
+
+def sleep_ns(ns):
+    start=time.monotonic_ns()
+    while (time.monotonic_ns()-start < ns):
+        pass
 
 class TMCStepper():
 
@@ -24,6 +104,40 @@ class TMCStepper():
     NO = 0
     SOFTSTOP = 1
     HARDSTOP = 2
+
+
+    _direction = True
+
+    _stop = StopMode.NO
+    _starttime = 0
+    _sg_callback = None
+
+    _msres = -1
+    _steps_per_rev = 0
+    _fullsteps_per_rev = 200
+
+    _current_pos = 0                 # current position of stepper in steps
+    _target_pos = 0                  # the target position in steps
+    _speed = 0.0                    # the current speed in steps per second
+    _max_speed = 1.0                 # the maximum speed in steps per second
+    _max_speed_homing = 200           # the maximum speed in steps per second for homing
+    _acceleration = 1.0             # the acceleration in steps per second per second
+    _acceleration_homing = 10000     # the acceleration in steps per second per second for homing
+    _sqrt_twoa = 1.0                # Precomputed sqrt(2*_acceleration)
+    _step_interval = 0               # the current interval between two steps
+    _min_pulse_width = 1              # minimum allowed pulse with in microseconds
+    _last_step_time = 0               # The last step time in microseconds
+    _n = 0                          # step counter
+    _c0 = 0                         # Initial step size in microseconds
+    _cn = 0                         # Last step size in microseconds
+    _cmin = 0                       # Min step size in microseconds based on maxSpeed
+    _sg_threshold = 100             # threshold for stallguard
+    _movement_abs_rel = MovementAbsRel.ABSOLUTE
+    _movement_phase = MovementPhase.STANDSTILL
+
+    _pin_dir = -1
+#    _pin_step = digitalio.DigitalInOut(board.GP29)
+#    _pin_step.direction = digitalio.Direction.OUTPUT
 
     def __init__(self, uart, mtr_id = 0, communication_pause = 0.004):
         self.mtr_id = mtr_id
@@ -632,6 +746,20 @@ class TMCStepper():
         step = round(step)
         return step+offset
 
+    def set_direction_pin_or_reg(self, direction):
+        """sets the motor shaft direction to the given value: 0 = CCW; 1 = CW
+        will use the reg, if pin==-1, otherwise use the pin
+
+        Args:
+            direction (bool): motor shaft direction: False = CCW; True = CW
+        """
+        if self._pin_dir != -1:
+            pass
+            #self.set_direction_pin(direction)
+        else:
+            self.set_direction_reg(not direction) #no clue, why this has to be inverted
+
+
     def set_vactual_dur(self, vactual, duration=0, acceleration=0,
                              show_stallguard_result=False, show_tstep=False):
         """sets the register bit "VACTUAL" to to a given value
@@ -696,3 +824,421 @@ class TMCStepper():
             current_time = time.time()
         self.set_vactual(0)
         return self._stop
+
+
+    def set_movement_abs_rel(self, movement_abs_rel):
+        """set whether the movement should be relative or absolute by default.
+        See the Enum MovementAbsoluteRelative
+
+        Args:
+            movement_abs_rel (enum): whether the movement should be relative or absolute
+        """
+        self._movement_abs_rel = movement_abs_rel
+
+
+
+    def get_current_position(self):
+        """returns the current motor position in µsteps
+
+        Returns:
+            int: current motor position
+        """
+        return self._current_pos
+
+
+
+    def set_current_position(self, new_pos):
+        """overwrites the current motor position in µsteps
+
+        Args:
+            new_pos (int): new position of the motor in µsteps
+        """
+        self._current_pos = new_pos
+
+
+    def set_speed(self, speed):
+        """sets the motor speed in steps per second
+
+        Args:
+            speed (int): speed in steps/sec
+        """
+        if speed == self._speed:
+            return
+        speed = self.constrain(speed, -self._max_speed, self._max_speed)
+        if speed == 0.0:
+            self._step_interval = 0
+        else:
+            self._step_interval = abs(1000000.0 / speed)
+            if speed > 0:
+                self.set_direction_pin_or_reg(1)
+                print("going CW")
+            else:
+                self.set_direction_pin_or_reg(0)
+                print("going CCW")
+        self._speed = speed
+
+
+    def set_speed_fullstep(self, speed):
+        """sets the motor speed in fullsteps per second
+
+        Args:
+            speed (int): speed in fullsteps/sec
+        """
+        self.set_speed(speed*self.get_microstepping_resolution())
+
+
+    def set_max_speed(self, speed):
+        """sets the maximum motor speed in µsteps per second
+
+        Args:
+            speed (int): speed in µsteps per second
+        """
+        if speed < 0.0:
+            speed = -speed
+        if self._max_speed != speed:
+            self._max_speed = speed
+            if speed == 0.0:
+                self._cmin = 0.0
+            else:
+                self._cmin = 1000000.0 / speed
+            # Recompute _n from current speed and adjust speed if accelerating or cruising
+            if self._n > 0:
+                self._n = (self._speed * self._speed) / (2.0 * self._acceleration) # Equation 16
+                self.compute_new_speed()
+
+
+
+    def set_max_speed_fullstep(self, speed):
+        """sets the maximum motor speed in fullsteps per second
+
+        Args:
+            speed (int): maximum speed in fullsteps/sec
+        """
+        self.set_max_speed(speed*self.get_microstepping_resolution())
+
+
+
+    def get_max_speed(self):
+        """returns the maximum motor speed in steps per second
+
+        Returns:
+            int: current maximum speed in steps/sec
+        """
+        return self._max_speed
+
+
+
+    def set_acceleration(self, acceleration):
+        """sets the motor acceleration/deceleration in µsteps per sec per sec
+
+        Args:
+            acceleration (int): acceleration/deceleration in µsteps per sec per sec
+        """
+        if acceleration == 0.0:
+            return
+        acceleration = abs(acceleration)
+        if self._acceleration != acceleration:
+            # Recompute _n per Equation 17
+            self._n = self._n * (self._acceleration / acceleration)
+            # New c0 per Equation 7, with correction per Equation 15
+            self._c0 = 0.676 * math.sqrt(2.0 / acceleration) * 1000000.0 # Equation 15
+            self._acceleration = acceleration
+            self.compute_new_speed()
+
+
+
+    def set_acceleration_fullstep(self, acceleration):
+        """sets the motor acceleration/deceleration in fullsteps per sec per sec
+
+        Args:
+            acceleration (int): acceleration/deceleration in fullsteps per sec per sec
+        """
+        self.set_acceleration(acceleration*self.get_microstepping_resolution())
+
+
+
+    def get_acceleration(self):
+        """returns the motor acceleration/deceleration in steps per sec per sec
+
+        Returns:
+            int: acceleration/deceleration in µsteps per sec per sec
+        """
+        return self._acceleration
+
+
+
+    def stop(self, stop_mode = StopMode.HARDSTOP):
+        """stop the current movement
+
+        Args:
+            stop_mode (enum): whether the movement should be stopped immediately or softly
+                (Default value = StopMode.HARDSTOP)
+        """
+        self._stop = stop_mode
+
+
+
+    def get_movement_phase(self):
+        """return the current Movement Phase
+
+        Returns:
+            movement_phase (enum): current Movement Phase
+        """
+        return self._movement_phase
+
+    def run_to_position_steps(self, steps, movement_abs_rel = None):
+        """runs the motor to the given position.
+        with acceleration and deceleration
+        blocks the code until finished or stopped from a different thread!
+        returns true when the movement if finished normally and false,
+        when the movement was stopped
+
+        Args:
+            steps (int): amount of steps; can be negative
+            movement_abs_rel (enum): whether the movement should be absolut or relative
+                (Default value = None)
+
+        Returns:
+            stop (enum): how the movement was finished
+        """
+        if movement_abs_rel is None:
+            movement_abs_rel = self._movement_abs_rel
+
+        if movement_abs_rel == MovementAbsRel.RELATIVE:
+            self._target_pos = self._current_pos + steps
+        else:
+            self._target_pos = steps
+
+        self._stop = StopMode.NO
+        self._step_interval = 0
+        self._speed = 0.0
+        self._n = 0
+        self.compute_new_speed()
+        while self.run(): #returns false, when target position is reached
+            if self._stop == StopMode.HARDSTOP:
+                break
+
+        self._movement_phase = MovementPhase.STANDSTILL
+        return self._stop
+
+    def run(self):
+        """calculates a new speed if a speed was made
+
+        returns true if the target position is reached
+        should not be called from outside!
+        """
+        if self.run_speed(): #returns true, when a step is made
+            self.compute_new_speed()
+        return self._speed != 0.0 and self.distance_to_go() != 0
+
+
+
+    def distance_to_go(self):
+        """returns the remaining distance the motor should run"""
+        return self._target_pos - self._current_pos
+
+
+
+    def compute_new_speed(self):
+        """returns the calculated current speed depending on the acceleration
+
+        this code is based on:
+        "Generate stepper-motor speed profiles in real time" by David Austin
+        https://www.embedded.com/generate-stepper-motor-speed-profiles-in-real-time/
+        https://web.archive.org/web/20140705143928/http://fab.cba.mit.edu/classes/MIT/961.09/projects/i0/Stepper_Motor_Speed_Profile.pdf
+        """
+        distance_to = self.distance_to_go() # +ve is clockwise from current location
+        steps_to_stop = (self._speed * self._speed) / (2.0 * self._acceleration) # Equation 16
+        if ((distance_to == 0 and steps_to_stop <= 2) or
+        (self._stop == StopMode.SOFTSTOP and steps_to_stop <= 1)):
+            # We are at the target and its time to stop
+            self._step_interval = 0
+            self._speed = 0.0
+            self._n = 0
+            self._movement_phase = MovementPhase.STANDSTILL
+            print("time to stop")
+            return
+
+        if distance_to > 0:
+            # We are anticlockwise from the target
+            # Need to go clockwise from here, maybe decelerate now
+            if self._n > 0:
+                # Currently accelerating, need to decel now? Or maybe going the wrong way?
+                if ((steps_to_stop >= distance_to) or self._direction == Direction.CCW or
+                    self._stop == StopMode.SOFTSTOP):
+                    self._n = -steps_to_stop # Start deceleration
+                    self._movement_phase = MovementPhase.DECELERATING
+            elif self._n < 0:
+                # Currently decelerating, need to accel again?
+                if (steps_to_stop < distance_to) and self._direction == Direction.CW:
+                    self._n = -self._n # Start acceleration
+                    self._movement_phase = MovementPhase.ACCELERATING
+        elif distance_to < 0:
+            # We are clockwise from the target
+            # Need to go anticlockwise from here, maybe decelerate
+            if self._n > 0:
+                # Currently accelerating, need to decel now? Or maybe going the wrong way?
+                if (((steps_to_stop >= -distance_to) or self._direction == Direction.CW or
+                    self._stop == StopMode.SOFTSTOP)):
+                    self._n = -steps_to_stop # Start deceleration
+                    self._movement_phase = MovementPhase.DECELERATING
+            elif self._n < 0:
+                # Currently decelerating, need to accel again?
+                if (steps_to_stop < -distance_to) and self._direction == Direction.CCW:
+                    self._n = -self._n # Start acceleration
+                    self._movement_phase = MovementPhase.ACCELERATING
+        # Need to accelerate or decelerate
+        if self._n == 0:
+            # First step from stopped
+            self._cn = self._c0
+            self._pin_step.value=False
+            if distance_to > 0:
+                self.set_direction_pin_or_reg(1)
+                print("going CW")
+            else:
+                self.set_direction_pin_or_reg(0)
+                print("going CCW")
+            self._movement_phase = MovementPhase.ACCELERATING
+        else:
+            # Subsequent step. Works for accel (n is +_ve) and decel (n is -ve).
+            self._cn = self._cn - ((2.0 * self._cn) / ((4.0 * self._n) + 1)) # Equation 13
+            self._cn = max(self._cn, self._cmin)
+            if self._cn == self._cmin:
+                self._movement_phase = MovementPhase.MAXSPEED
+        self._n += 1
+        self._step_interval = self._cn
+        self._speed = 1000000.0 / self._cn
+        if self._direction == 0:
+            self._speed = -self._speed
+
+
+
+    def run_speed(self):
+        """this methods does the actual steps with the current speed"""
+        # Don't do anything unless we actually have a step interval
+        if not self._step_interval:
+            return False
+        curtime = time.monotonic_ns()/1000
+        if curtime - self._last_step_time >= self._step_interval:
+
+            if self._direction == 1: # Clockwise
+                self._current_pos += 1
+            else: # Anticlockwise
+                self._current_pos -= 1
+            self.make_a_step()
+            self._last_step_time = curtime # Caution: does not account for costs in step()
+
+            return True
+        return False
+
+
+
+    def make_a_step(self):
+        """method that makes on step
+
+        for the TMC2209 there needs to be a signal duration of minimum 100 ns
+        """
+        self._pin_step.value=True
+        sleep_ns(1000)
+        self._pin_step.value=False
+        sleep_ns(1000)
+
+        #print("one step")
+
+
+    def rps_to_vactual(self, rps, steps_per_rev, fclk = 12000000):
+        """converts rps -> vactual
+
+        Args:
+            rps (float): revolutions per second
+            steps_per_rev (int): steps per revolution
+            fclk (int): clock speed of the tmc (Default value = 12000000)
+
+        Returns:
+            vactual (int): value for vactual
+        """
+        return int(round(rps / (fclk / 16777216) * steps_per_rev))
+
+
+    def vactual_to_rps(self, vactual, steps_per_rev, fclk = 12000000):
+        """converts vactual -> rps
+
+        Args:
+            vactual (int): value for VACTUAL
+            steps_per_rev (int): steps per revolution
+            fclk (int): clock speed of the tmc (Default value = 12000000)
+
+        Returns:
+            rps (float): revolutions per second
+        """
+        return vactual * (fclk / 16777216) / steps_per_rev
+
+
+    def rps_to_steps(self, rps, steps_per_rev):
+        """converts rps -> steps/second
+
+        Args:
+            rps (float): revolutions per second
+            steps_per_rev (int): steps per revolution
+
+        Returns:
+            steps (int): steps per second
+        """
+        return rps * steps_per_rev
+
+    def steps_to_rps(self, steps, steps_per_rev):
+        """converts steps/second -> rps
+
+        Args:
+            steps (int): speed in steps per second
+            steps_per_rev (int): steps per revolution
+
+        Returns:
+            rps (float): revolutions per second
+        """
+        return steps / steps_per_rev
+
+
+    def rps_to_tstep(self, rps, steps_per_rev, msres):
+        """converts rps -> tstep
+
+        Args:
+            rps (float): revolutions per second
+            steps_per_rev (int): steps per revolution
+            msres (int): µstep resolution
+
+        Returns:
+            tstep (int): time per step
+        """
+        return int(round(12000000 / (rps_to_steps(rps, steps_per_rev) * 256 / msres)))
+
+
+    def steps_to_tstep(self, steps, msres):
+        """converts steps/second -> tstep
+
+        Args:
+            steps (int): speed in steps per second
+            msres (int): µstep resolution
+
+        Returns:
+            tstep (int): time per step
+        """
+        return int(round(12000000 / (steps * 256 / msres)))
+
+
+    def constrain(self, val, min_val, max_val):
+        """constrains a value between a min and a max
+
+        Args:
+            val (int): value that should be constrained
+            min_val (int): minimum value
+            max_val (int): maximum value
+
+        Returns:
+            int: constrained value
+        """
+        if val < min_val:
+            return min_val
+        if val > max_val:
+            return max_val
+        return val
