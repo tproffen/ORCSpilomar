@@ -1,5 +1,5 @@
 {
-    "Logger": "<pilomarlogfile.logfile object at 0x7f82299190>",
+    "Logger": "<pilomarlogfile.logfile object at 0x7f68a9ead0>",
     "ParamFileName": "/home/pi/ORCSpilomar/data/pilomar_params.json",
     "StepperDriverData": {
         "tmc2209": {
@@ -27,6 +27,30 @@
                 "32": {
                     "power": 5,
                     "modesignals": "nyn"
+                }
+            }
+        },
+        "drv8825": {
+            "modelist": {
+                "1": {
+                    "power": 100,
+                    "modesignals": "nnn"
+                },
+                "2": {
+                    "power": 70,
+                    "modesignals": "ynn"
+                },
+                "4": {
+                    "power": 40,
+                    "modesignals": "nyn"
+                },
+                "8": {
+                    "power": 20,
+                    "modesignals": "yyn"
+                },
+                "16": {
+                    "power": 10,
+                    "modesignals": "nny"
                 }
             }
         }
