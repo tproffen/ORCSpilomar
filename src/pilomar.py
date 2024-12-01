@@ -114,7 +114,7 @@ ProgramTitle = SourceCode().split('/')[-1].split('.')[0].lower() # Used in displ
 print(ProgramTitle,VERSION)
 
 #print("Version:",VERSION)
-ACCEPTABLECONTROLLERVERSIONS = ['1.0'] # Microcontroller versions that this will work with. Ignore patch level.
+ACCEPTABLECONTROLLERVERSIONS = ['1.0','1.1'] # Microcontroller versions that this will work with. Ignore patch level.
 
 # Import required libraries
 from typing import Tuple # For type hinting.
@@ -3662,6 +3662,7 @@ class motorcontrol(attributemaster):
 
 # Create and initialize motor instances.
 AzimuthControl = motorcontrol('azimuth',
+                              driver=Parameters.AzimuthDriver,
                               gearratio=Parameters.AzimuthGearRatio, # 240 # Gearing of the drive system ignoring motor steps.
                               fullstepsperrev=Parameters.AzimuthMotorStepsPerRev, # 400 # FullStep count of the motor before microstepping added.
                               microstepratio=Parameters.AzimuthMicrostepRatio, # 1 # Level of microstepping to be added for observations. 1 = Full steps, 2 = 1/2 steps, 4 = 1/4 steps etc.
@@ -3680,6 +3681,7 @@ AzimuthControl = motorcontrol('azimuth',
                               optimisemoves=Parameters.OptimiseMoves, # Can motor move freely across the 0-360 limit to keep tracking targets?
                               logger=MainLog)
 AltitudeControl = motorcontrol('altitude',
+                              driver=Parameters.AltitudeDriver,
                               gearratio=Parameters.AltitudeGearRatio, # 240,
                               fullstepsperrev=Parameters.AltitudeMotorStepsPerRev, # 400 # FullStep count of the motor before microstepping added.
                               microstepratio=Parameters.AltitudeMicrostepRatio, # 1 # Level of microstepping to be added for observations. 1 = Full steps, 2 = 1/2 steps, 4 = 1/4 steps etc.
