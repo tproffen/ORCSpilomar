@@ -904,15 +904,24 @@ class parameters(attributemaster): # Common
                 self._Dictionary = json.load(f) # Overwrite the default parameter values with anything from file.
         # Pull parameter values from the dictionary, and update the dictionary with defaults if necessary.
         # - Define data about stepper motor driver boards and capabilities.
-        sdd = {'drv8825': 
-                {'modelist':
-                   { '1' : {'power' : 100, 'modesignals' : 'nnn'},
-                     '2' : {'power' :  70, 'modesignals' : 'ynn'},
-                     '4' : {'power' :  40, 'modesignals' : 'nyn'},
-                     '8' : {'power' :  20, 'modesignals' : 'yyn'},
-                    '16' : {'power' :  10, 'modesignals' : 'nny'},
-                    '32' : {'power' :   5, 'modesignals' : 'yyy'}
-                   }
+        sdd = { "tmc2209": {
+                  "modelist": {
+                      "1"  :  {"power" : 100, "modesignals" : "nnn"},
+                      "2"  :  {"power" :  70, "modesignals" : "ynn"},
+                      "4" :   {"power" :  40, "modesignals" : "nyn"},
+                      "8" :   {"power" :  20, "modesignals" : "nnn"},
+                      "16" :  {"power" :  10, "modesignals" : "yyn"},
+                      "32" :  {"power" :   5, "modesignals" : "nyn"}
+                  }
+              },
+                  "drv8825": {
+                    "modelist": {
+                       "1"  :  {"power" : 100, "modesignals" : "nnn"},
+                       "2"  :  {"power" :  70, "modesignals" : "ynn"},
+                       "4" :   {"power" :  40, "modesignals" : "nyn"},
+                       "8" :   {"power" :  20, "modesignals" : "yyn"},
+                       "16" :  {"power" :  10, "modesignals" : "nny"}
+                  }
                 }
               }
         self.StepperDriverData = self.GetParmVal('StepperDriverData',sdd) # Dictionary containing stepper driver types and parameters.
