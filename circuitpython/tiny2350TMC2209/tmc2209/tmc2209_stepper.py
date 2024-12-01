@@ -8,7 +8,7 @@ import struct
 from . import tmc2209_reg as reg
 
 
-class TMC_uart():
+class TMCStepper():
 
     mtr_id = 0
     ser = None
