@@ -8,7 +8,7 @@ import struct
 from . import tmc2209_reg as reg
 
 
-class TMC_uart():
+class TMCStepper():
 
     mtr_id = 0
     ser = None
@@ -20,6 +20,11 @@ class TMC_uart():
     _msres = -1
     _steps_per_rev = 0
     _fullsteps_per_rev = 400
+
+    # Pins (hardcoded for now)
+
+    _pin_en = digitalio.DigitalInOut(board.GP2)
+    _pin_en.direction = digitalio.Direction.OUTPUT
 
     NO = 0
     SOFTSTOP = 1
@@ -59,7 +64,7 @@ class TMC_uart():
 
         time.sleep(self.communication_pause)
         rtn = self.uart.read(12)
-        #print(f"received {len(rtn)} bytes; {len(rtn*8)} bits")
+        print(f"received {len(rtn)} bytes; {len(rtn*8)} bits")
         time.sleep(self.communication_pause)
 
         return rtn
@@ -631,6 +636,13 @@ class TMC_uart():
         step = (4*self._msres)-step-1
         step = round(step)
         return step+offset
+
+    def set_motor_enabled(self, en):
+        if self._pin_en != -1:
+            self._pin_en.value = not en
+            print(f"Motor output active: {en}")
+        else:
+            print(f"Motor pin is: {self._pin_en}")
 
     def set_vactual_dur(self, vactual, duration=0, acceleration=0,
                              show_stallguard_result=False, show_tstep=False):
