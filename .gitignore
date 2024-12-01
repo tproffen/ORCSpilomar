@@ -1,0 +1,5 @@
+log/
+src/__pycache__/
+data/*
+
+!data/pilomar_params.json

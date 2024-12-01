@@ -1,0 +1,293 @@
+{
+    "Logger": "<pilomarlogfile.logfile object at 0x7f82299190>",
+    "ParamFileName": "/home/pi/ORCSpilomar/data/pilomar_params.json",
+    "StepperDriverData": {
+        "tmc2209": {
+            "modelist": {
+                "1": {
+                    "power": 100,
+                    "modesignals": "nnn"
+                },
+                "2": {
+                    "power": 70,
+                    "modesignals": "ynn"
+                },
+                "4": {
+                    "power": 40,
+                    "modesignals": "nyn"
+                },
+                "8": {
+                    "power": 20,
+                    "modesignals": "nnn"
+                },
+                "16": {
+                    "power": 10,
+                    "modesignals": "yyn"
+                },
+                "32": {
+                    "power": 5,
+                    "modesignals": "nyn"
+                }
+            }
+        }
+    },
+    "BoardType": null,
+    "BatchSize": 100,
+    "ControlBatchSize": 20,
+    "ColorScheme": "green",
+    "CameraEnabled": true,
+    "BacklashEnabled": false,
+    "FaultSensitive": false,
+    "MctlLedStatus": true,
+    "ObservationResetsMctl": false,
+    "MctlResetPin": 4,
+    "StopPin": 25,
+    "UartRxQueueLimit": 50,
+    "MinAzimuthAngle": 0,
+    "MaxAzimuthAngle": 360,
+    "AzimuthDriver": "tmc2209",
+    "AzimuthGearRatio": 240,
+    "AzimuthMotorStepsPerRev": 400,
+    "AzimuthSlewMicrostepRatio": 8,
+    "AzimuthMicrostepRatio": 8,
+    "AzimuthRestAngle": 180.0,
+    "AzimuthBacklashAngle": 0.0,
+    "AzimuthOrientation": -1,
+    "AzimuthLimitAngle": null,
+    "MinAltitudeAngle": 0,
+    "MaxAltitudeAngle": 90,
+    "AltitudeDriver": "tmc2209",
+    "AltitudeGearRatio": 240,
+    "AltitudeMotorStepsPerRev": 400,
+    "AltitudeMicrostepRatio": 8,
+    "AltitudeSlewMicrostepRatio": 8,
+    "AltitudeRestAngle": 0.0,
+    "AltitudeBacklashAngle": 0.0,
+    "AltitudeOrientation": -1,
+    "AltitudeLimitAngle": null,
+    "FastTime": 0.0005,
+    "SlowTime": 0.02,
+    "TimeDelta": 0.005,
+    "MotorStatusDelay": 10,
+    "SlewEnabled": true,
+    "OptimiseMoves": false,
+    "MctlCommsTimeout": 120,
+    "UseUSBStorage": true,
+    "SDPath": "/",
+    "USBPath": "/media/pi",
+    "FastFlush": false,
+    "FastImageCapture": false,
+    "HorizonAltitude": 0.0,
+    "LocalStarsMagnitude": 7.0,
+    "ConstellationStarsMagnitude": 7.0,
+    "CameraSaveJpg": true,
+    "CameraSaveDng": true,
+    "CameraSaveFits": false,
+    "CameraCommands": {
+        "raspistill": {
+            "light": "raspistill -o {&output} -ex off -t 10 -n -q 100 -md {&mode} -w {&width} -h {&height} -ag 16.0 -ss {&shutter}",
+            "dark": "raspistill -o {&output} -ex off -t 10 -n -q 100 -md {&mode} -w {&width} -h {&height} -ag 16.0 -ss {&shutter}",
+            "bias": "raspistill -o {&output} -ex off -t 10 -n -q 100 -md {&mode} -w {&width} -h {&height} -ag 16.0 -ss {&shutter}",
+            "flat": "raspistill -o {&output} -t 10 -n -q 100 -md {&mode} -w {&width} -h {&height} -ag 16.0",
+            "darkflat": "raspistill -o {&output} -ex off -t 10 -n -q 100 -md {&mode} -w {&width} -h {&height} -ag 16.0 -ss {&shutter}",
+            "auto": "raspistill -o {&output} -t 10 -n -q 100 -md {&mode} -w {&width} -h {&height}",
+            "tracking": "raspistill -o {&output} -ex off -t 10 -n -q 100 -md {&mode} -w {&width} -h {&height} -ss {&shutter}",
+            "imagetypes": [
+                "jpg",
+                "dng"
+            ],
+            "osnames": [
+                "buster"
+            ],
+            "rawswitch": "-r"
+        },
+        "pilomarfits": {
+            "light": "python3 pilomarfits.py --output {&output} --quality 100 --width {&width} --height {&height} --shutter {&shutter} --tuning-file imx477_noir.json",
+            "dark": "python3 pilomarfits.py --output {&output} --quality 100 --width {&width} --height {&height} --shutter {&shutter} --tuning-file imx477_noir.json",
+            "bias": "python3 pilomarfits.py --output {&output} --quality 100 --width {&width} --height {&height} --shutter {&shutter} --tuning-file imx477_noir.json",
+            "flat": "python3 pilomarfits.py --output {&output} --quality 100 --width {&width} --height {&height} --tuning-file imx477_noir.json",
+            "darkflat": "python3 pilomarfits.py --output {&output} --quality 100 --width {&width} --height {&height} --shutter {&shutter} --tuning-file imx477_noir.json",
+            "auto": "python3 pilomarfits.py --output {&output} --quality 100 --width {&width} --height {&height} --tuning-file imx477_noir.json",
+            "tracking": "python3 pilomarfits.py --output {&output} --quality 100 --width {&width} --height {&height} --shutter {&shutter} --tuning-file imx477_noir.json",
+            "imagetypes": [
+                "jpg",
+                "fits"
+            ],
+            "osnames": [
+                "bullseye",
+                "bookworm"
+            ],
+            "rawswitch": "--raw"
+        },
+        "libcamera": {
+            "light": "rpicam-still --output {&output} --timeout 1 --nopreview --quality 100 --width {&width} --height {&height} --denoise off --analoggain 16.0 --shutter {&shutter}",
+            "dark": "rpicam-still --output {&output} --timeout 1 --nopreview --quality 100 --width {&width} --height {&height} --denoise off --analoggain 16.0 --shutter {&shutter}",
+            "bias": "rpicam-still --output {&output} --timeout 1 --nopreview --quality 100 --width {&width} --height {&height} --denoise off --analoggain 16.0 --shutter {&shutter}",
+            "flat": "rpicam-still --output {&output} --timeout 1 --nopreview --quality 100 --width {&width} --height {&height} --denoise off --analoggain 16.0",
+            "darkflat": "rpicam-still --output {&output} --timeout 1 --nopreview --quality 100 --width {&width} --height {&height} --denoise off --analoggain 16.0 --shutter {&shutter}",
+            "auto": "rpicam-still --output {&output} --timeout 1 --nopreview --quality 100 --width {&width} --height {&height} --denoise off",
+            "tracking": "rpicam-still --output {&output} --timeout 1 --nopreview --quality 100 --width {&width} --height {&height} --denoise off --shutter {&shutter}",
+            "imagetypes": [
+                "jpg",
+                "dng"
+            ],
+            "osnames": [
+                "bullseye",
+                "bookworm"
+            ],
+            "rawswitch": "--raw"
+        }
+    },
+    "DisableCleanup": true,
+    "CameraDriver": "libcamera",
+    "CameraImageTypes": [
+        "jpg",
+        "dng"
+    ],
+    "UseTracking": true,
+    "TrackingTargetGrayscale": false,
+    "LatestTrackingFilter": null,
+    "TrackingPrediction": false,
+    "TrackingMatchThreshold": 5,
+    "MinimumDriftCorrection": 50,
+    "TrackingInterval": 600,
+    "TrackingStarRadius": 3,
+    "TrackingExposureSeconds": 5.0,
+    "GeneratePreview": true,
+    "GenerateKeogram": false,
+    "InitialGoTo": true,
+    "TargetInclusionRadius": 15,
+    "TargetMinMagnitude": 7.0,
+    "UseLiveLocation": true,
+    "DebugMode": false,
+    "KeyboardScanDelay": 2,
+    "SessionHistoryLimit": 30,
+    "LocalTZ": "Europe/London",
+    "HomeLat": "36.0179143 N",
+    "HomeLon": "84.2180952 W",
+    "MarkupInterval": 300,
+    "MarkupShowLabels": true,
+    "MarkupShowNames": true,
+    "MarkupStarLabelLimit": 100,
+    "MarkupAvoidCollisions": false,
+    "FakeStars": true,
+    "FakeNoise": false,
+    "FakeField": false,
+    "FakePollution": false,
+    "FakeAurora": true,
+    "FakeMeteor": true,
+    "FakeMeteorPercent": 2,
+    "LensLength": 16.0,
+    "LensHorizontalFov": 21.8,
+    "LensVerticalFov": 16.4,
+    "SensorType": "imx477",
+    "IRFilter": true,
+    "PollutionFilter": false,
+    "TrajectoryWindow": 1200,
+    "UseDynamicTrajectoryPeriods": true,
+    "MenuTitleFG": 10,
+    "MenuTitleBG": 22,
+    "MenuSubtitleFG": 0,
+    "MenuSubtitleBG": 2,
+    "TitleFG": 10,
+    "TitleBG": 22,
+    "TextFG": 2,
+    "TextBG": 235,
+    "TextGood": 119,
+    "TextPoor": 11,
+    "TextBad": 202,
+    "BorderFG": 22,
+    "BorderBG": 235,
+    "ScanForMeteors": true,
+    "MinSatelliteAltitude": 30,
+    "AuroraCameraAltitude": 5,
+    "FilterScripts": {
+        "ExampleThreshold": {
+            "ThresholdStep": {
+                "method": "threshold",
+                "threshold": 100,
+                "maxval": 255,
+                "type": 0,
+                "comment": "Use simple binary threshold to detect any pixels > 100 and consider them to be stars."
+            }
+        },
+        "ExampleDehaze": {
+            "DeHaze": {
+                "method": "dehaze",
+                "samples": 1,
+                "strength": 100,
+                "comment": "Remove urban haze from the image background."
+            }
+        },
+        "ExampleBlur": {
+            "BlurStep": {
+                "method": "gaussianblur",
+                "radius": 100,
+                "comment": "Apply Gaussian blur to widen remaining items"
+            }
+        },
+        "ExampleGrayscale": {
+            "GrayStep": {
+                "method": "grayscale",
+                "comment": "Reduce an image to grayscale."
+            }
+        },
+        "EnhanceClouds": {
+            "CloudThreshold": {
+                "method": "threshold",
+                "threshold": 100,
+                "maxval": 255,
+                "type": 0,
+                "comment": "Use simple binary threshold to detect any pixels > 100 and consider them to be potential clouds."
+            }
+        },
+        "EnhanceStars": {
+            "ToGrayscale": {
+                "method": "grayscale"
+            },
+            "EliminateClouds": {
+                "method": "threshold",
+                "threshold": 100,
+                "maxval": 255,
+                "type": 0,
+                "comment": "Apply low threshold to remove dim objects such as clouds."
+            },
+            "BlurStars": {
+                "method": "gaussianblur",
+                "radius": 13,
+                "comment": "Apply Gaussian blur to widen remaining items"
+            },
+            "BoostStars": {
+                "method": "threshold",
+                "threshold": 16,
+                "maxval": 255,
+                "type": 8,
+                "comment": "Apply adaptive threshold to boost remaining stars."
+            }
+        },
+        "UrbanFilter": {
+            "ToGrayscale": {
+                "method": "grayscale"
+            },
+            "DeHaze": {
+                "method": "dehaze",
+                "samples": 1,
+                "strength": 100,
+                "comment": "Remove urban haze from the image background."
+            },
+            "BlurStars": {
+                "method": "gaussianblur",
+                "radius": 2,
+                "comment": "Apply Gaussian blur to widen remaining items"
+            },
+            "BoostStars": {
+                "method": "threshold",
+                "threshold": 16,
+                "maxval": 255,
+                "type": 8,
+                "comment": "Apply adaptive threshold to boost remaining stars."
+            }
+        }
+    },
+    "RequireRestart": false
+}
