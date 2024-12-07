@@ -5,69 +5,104 @@ import digitalio
 import math
 import struct
 
-from . import tmc2209_reg as reg
+from pilomar.enum import *
 
-class FakeEnumType(type):
-    def __init__(self, name, bases, namespace):
-        # print("FakeEnumType.__init__", self, name, bases)
-        #self.enumclass = type(name, (FakeEnum,), {})
-        super().__init__(name, bases, namespace)
-    def __setattr__(self, name, value):
-        # print("FakeEnumType.__setattr__")
-        if not name.startswith('_'):
-            raise AttributeError("Cannot reassign enum members")
-        super().__setattr__(name, value)
-    def __getattribute__(self, __name: str):
-        # print("FakeEnumType.__getattribute__")
-        if __name.startswith('_'):
-            return super().__getattribute__(__name)
-        return self(self.__dict__[__name])
-    def __contains__(self, item):
-        return item in self.__iter__()
-    def __iter__(self):
-        for key, value in self.__dict__.items():
-            if key.startswith('_'):
-                continue
-            try:
-                yield self(value)
-            except (TypeError, ValueError):
-                pass    # Not a valid enum value
+#-----------------------------------------------------------------------------------------------
+class reg(Enum):
+    #addresses
+    GCONF           =   0x00
+    GSTAT           =   0x01
+    IFCNT           =   0x02
+    IOIN            =   0x06
+    IHOLD_IRUN      =   0x10
+    TSTEP           =   0x12
+    VACTUAL         =   0x22
+    TCOOLTHRS       =   0x14
+    SGTHRS          =   0x40
+    SG_RESULT       =   0x41
+    MSCNT           =   0x6A
+    CHOPCONF        =   0x6C
+    DRVSTATUS       =   0x6F
 
+    #GCONF
+    i_scale_analog      = 1<<0
+    internal_rsense     = 1<<1
+    en_spreadcycle      = 1<<2
+    shaft               = 1<<3
+    index_otpw          = 1<<4
+    index_step          = 1<<5
+    pdn_disable         = 1<<6
+    mstep_reg_select    = 1<<7
 
-class Enum(FakeEnumType):
+    #GSTAT
+    reset               = 1<<0
+    drv_err             = 1<<1
+    uv_cp               = 1<<2
 
-    def __init__(self, value):
-        if isinstance(value, self.__class__):
-            value = value.value
-        else:
-            self.value = value
-        # print("FakeEnum.__init__")
+    #CHOPCONF
+    toff0               = 1<<0
+    toff1               = 1<<1
+    toff2               = 1<<2
+    toff3               = 1<<3
+    vsense              = 1<<17
+    msres0              = 1<<24
+    msres1              = 1<<25
+    msres2              = 1<<26
+    msres3              = 1<<27
+    intpol              = 1<<28
 
-    def __eq__(self, other):
-        if isinstance(other, self.__class__):
-            return self.value == other.value
-        return NotImplemented
+    #IOIN
+    io_enn              = 1<<0
+    io_step             = 1<<7
+    io_spread           = 1<<8
+    io_dir              = 1<<9
 
-    def __ne__(self, other):
-        result = self.__eq__(other)
-        if result is NotImplemented:
-            return result
-        return not result
+    #DRVSTATUS
+    stst                = 1<<31
+    stealth             = 1<<30
+    cs_actual           = 31<<16
+    t157                = 1<<11
+    t150                = 1<<10
+    t143                = 1<<9
+    t120                = 1<<8
+    olb                 = 1<<7
+    ola                 = 1<<6
+    s2vsb               = 1<<5
+    s2vsa               = 1<<4
+    s2gb                = 1<<3
+    s2ga                = 1<<2
+    ot                  = 1<<1
+    otpw                = 1<<0
 
-    def __repr__(self):
-        return f"{self.__class__.__name__} {self.value}"
+    #IHOLD_IRUN
+    ihold               = 31<<0
+    irun                = 31<<8
+    iholddelay          = 15<<16
 
+    #SGTHRS
+    sgthrs              = 255<<0
+
+    #others
+    mres_256 = 0
+    mres_128 = 1
+    mres_64 = 2
+    mres_32 = 3
+    mres_16 = 4
+    mres_8 = 5
+    mres_4 = 6
+    mres_2 = 7
+    mres_1 = 8
+
+#-----------------------------------------------------------------------------------------------
 class Direction(Enum):
     """movement direction of the motor"""
     CCW = 0
     CW = 1
 
-
 class MovementAbsRel(Enum):
     """movement absolute or relative"""
     ABSOLUTE = 0
     RELATIVE = 1
-
 
 class MovementPhase(Enum):
     """movement phase"""
@@ -76,18 +111,15 @@ class MovementPhase(Enum):
     MAXSPEED = 2
     DECELERATING = 3
 
-
 class StopMode(Enum):
     """stopmode"""
     NO = 0
     SOFTSTOP = 1
     HARDSTOP = 2
 
-def sleep_ns(ns):
-    start=time.monotonic_ns()
-    while (time.monotonic_ns()-start < ns):
-        pass
-
+#-----------------------------------------------------------------------------------------------
+# Main Stepper motor class for TMC2209 (UART)
+#-----------------------------------------------------------------------------------------------
 class TMCStepper():
 
     mtr_id = 0
@@ -135,16 +167,22 @@ class TMCStepper():
     _movement_abs_rel = MovementAbsRel.ABSOLUTE
     _movement_phase = MovementPhase.STANDSTILL
 
-    _pin_dir = -1
-#    _pin_step = digitalio.DigitalInOut(board.GP29)
-#    _pin_step.direction = digitalio.Direction.OUTPUT
+#-----------------------------------------------------------------------------------------------
+    def __init__(self, uart, LogFile, ExceptionCounter, 
+                 mtr_id = 0, communication_pause = 0.004, pin_step=-1, pin_dir=-1, pin_en=-1):
 
-    def __init__(self, uart, mtr_id = 0, communication_pause = 0.004):
         self.mtr_id = mtr_id
+        self.LogFile = LogFile
+        self.ExceptionCounter = ExceptionCounter
         self.communication_pause = communication_pause
         self.uart = uart
+        self._pin_step = pin_step
+        self._pin_dir = pin_dir
+        self._pin_en = pin_en
+        
+        self.read_drv_status()  # Put drive status in Log
 
-
+#-----------------------------------------------------------------------------------------------
     def compute_crc8_atm(self, datagram, initial_value=0):
         crc = initial_value
         # Iterate bytes in data
@@ -159,6 +197,7 @@ class TMCStepper():
                 byte = byte >> 1
         return crc
 
+#-----------------------------------------------------------------------------------------------
     def read_reg(self, register):
         self.uart.reset_input_buffer()
 
@@ -168,16 +207,17 @@ class TMCStepper():
 
         rtn = self.uart.write(bytearray(self.r_frame))
         if rtn != len(self.r_frame):
-            print("Err in read")
+            self.LogFile.Log("TMCStepper("+self.mtr_id+"): Error in TMC2209 register read")
+            self.ExceptionCounter.Raise()
             return False
 
         time.sleep(self.communication_pause)
         rtn = self.uart.read(12)
-        #print(f"received {len(rtn)} bytes; {len(rtn*8)} bits")
         time.sleep(self.communication_pause)
 
         return rtn
 
+#-----------------------------------------------------------------------------------------------
     def read_int(self, register, tries=10):
         while True:
             tries -= 1
@@ -185,22 +225,23 @@ class TMCStepper():
             rtn_data = rtn[7:11]
             not_zero_count = len([elem for elem in rtn if elem != 0])
             if(len(rtn)<12 or not_zero_count == 0):
-                print(f"""UART Communication Error: {len(rtn_data)} data bytes | {len(rtn)} total bytes""")
+                self.LogFile.Log(f"""TMCStepper({self.mtr_id}):UART Communication Error: {len(rtn_data)} data bytes | {len(rtn)} total bytes""")
+                self.ExceptionCounter.Raise()
             elif rtn[11] != self.compute_crc8_atm(rtn[4:11]):
-                print("UART Communication Error: CRC MISMATCH")
+                self.LogFile.Log("TMCStepper("+self.mtr_id+"): UART Communication Error: CRC MISMATCH")
+                self.ExceptionCounter.Raise()
             else:
                 break
 
             if tries<=0:
-                print("after 10 tries not valid answer")
-                print(f"snd:\t{bytes(self.r_frame)}")
-                print(f"rtn:\t{rtn}")
+                self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): After 10 tries not valid answer")
                 self.handle_error()
                 return -1
 
         val = struct.unpack(">i",rtn_data)[0]
         return val
 
+#-----------------------------------------------------------------------------------------------
     def write_reg(self, register, val):
         self.uart.reset_input_buffer()
 
@@ -214,13 +255,13 @@ class TMCStepper():
 
         rtn = self.uart.write(bytes(self.w_frame))
         if rtn != len(self.w_frame):
-            print("Err in write")
+            self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): Error in writing to UART register")
+            self.ExceptionCounter.Raise()
             return False
         time.sleep(self.communication_pause)
         return True
 
-
-
+#-----------------------------------------------------------------------------------------------
     def write_reg_check(self, register, val, tries=10):
         ifcnt1 = self.read_int(reg.IFCNT)
 
@@ -232,143 +273,134 @@ class TMCStepper():
             tries -= 1
             ifcnt2 = self.read_int(reg.IFCNT)
             if ifcnt1 >= ifcnt2:
-                print("writing not successful!")
-                print(f"ifcnt: {ifcnt1}, {ifcnt2}")
+                self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): Writing to UART register failed")
+                self.ExceptionCounter.Raise()
             else:
                 return True
             if tries<=0:
-                print("after 10 tries no valid write access")
+                self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): After 10 tries no valid write access")
                 self.handle_error()
                 return -1
 
+#-----------------------------------------------------------------------------------------------
     def set_bit(self, value, bit):
         return value | (bit)
 
+#-----------------------------------------------------------------------------------------------
     def clear_bit(self, value, bit):
         return value & ~(bit)
 
+#-----------------------------------------------------------------------------------------------
     def handle_error(self):
         if self.error_handler_running:
             return
         self.error_handler_running = True
         gstat = self.read_int(reg.GSTAT)
-        print("GSTAT Error check:")
         if gstat == -1:
-            print("No answer from Driver")
-        elif gstat == 0:
-            print("Everything looks fine in GSTAT")
+            self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): No answer from Driver")
         else:
             if gstat & reg.reset:
-                print("The Driver has been reset since the last read access to GSTAT")
+                self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): The Driver has been reset since the last read access to GSTAT")
             if gstat & reg.drv_err:
-                print("""The driver has been shut down due to overtemperature or short
-                      circuit detection since the last read access""")
+                self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): The driver has been shut down due to overtemperature or short circuit detection since the last read access")
             if gstat & reg.uv_cp:
-                print("""Undervoltage on the charge pump.
-                      The driver is disabled in this case""")
-        print("EXITING!")
+                self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): Undervoltage on the charge pump. The driver is disabled in this case")
+        self.ExceptionCounter.Raise()
 
+#-----------------------------------------------------------------------------------------------
     def read_drv_status(self):
         drvstatus =self.read_int(reg.DRVSTATUS)
+        self.LogFile.Log("TMC Driver status Motor ID "+str(self.mtr_id))
         if drvstatus & reg.stst:
-            print("Motor is standing still")
+            self.LogFile.Log("Motor is standing still")
         else:
-            print("Motor is running")
+            self.LogFile.Log("Motor is running")
 
         if drvstatus & reg.stealth:
-            print("Motor is running on StealthChop")
+            self.LogFile.Log("Motor is running on StealthChop")
         else:
-            print("Motor is running on SpreadCycle")
+            self.LogFile.Log("Motor is running on SpreadCycle")
 
         cs_actual = drvstatus & reg.cs_actual
         cs_actual = cs_actual >> 16
-        print(f"CS actual: {cs_actual}")
 
         if drvstatus & reg.olb:
-            print("Open load detected on phase B")
+            self.LogFile.Log("Open load detected on phase B")
 
         if drvstatus & reg.ola:
-            print("Open load detected on phase A")
+            self.LogFile.Log("Open load detected on phase A")
 
         if drvstatus & reg.s2vsb:
-            print("""Short on low-side MOSFET detected on phase B.
-                        The driver becomes disabled""")
+            self.LogFile.Log("Short on low-side MOSFET detected on phase B. The driver becomes disabled")
 
         if drvstatus & reg.s2vsa:
-            print("""Short on low-side MOSFET detected on phase A.
-                        The driver becomes disabled""")
+            self.LogFile.Log("Short on low-side MOSFET detected on phase A. The driver becomes disabled")
 
         if drvstatus & reg.s2gb:
-            print("""Short to GND detected on phase B.
-                                The driver becomes disabled.""")
+            self.LogFile.Log("Short to GND detected on phase B. The driver becomes disabled")
 
         if drvstatus & reg.s2ga:
-            print("""Short to GND detected on phase A.
-                                The driver becomes disabled.""")
+            self.LogFile.Log("Short to GND detected on phase A. The driver becomes disabled")
 
         if drvstatus & reg.ot:
-            print("Driver Overheating!")
+            self.LogFile.Log("Driver Overheating!")
 
         if drvstatus & reg.otpw:
-            print("Driver Overheating Prewarning!")
+            self.LogFile.Log("Driver Overheating Prewarning!")
 
-        print("---")
         return drvstatus
 
-
+#-----------------------------------------------------------------------------------------------
     def read_gconf(self):
         gconf = self.read_int(reg.GCONF)
 
         if gconf & reg.i_scale_analog:
-            print("Driver is using voltage supplied to VREF as current reference")
+            self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): Driver is using voltage supplied to VREF as current reference")
         else:
-            print("Driver is using internal reference derived from 5VOUT")
+            self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): Driver is using internal reference derived from 5VOUT")
         if gconf & reg.internal_rsense:
-            print("""Internal sense resistors.
-                                Use current supplied into VREF as reference.""")
-            print("VREF pin internally is driven to GND in this mode.")
-            print("This will most likely destroy your driver!!!")
+            self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): Internal sense resistors. Use current supplied into VREF as reference.")
+            self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): VREF pin internally is driven to GND in this mode.")
+            self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): This will most likely destroy your driver!!!")
             raise SystemExit
-        print("Operation with external sense resistors")
+        self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): Operation with external sense resistors")
         if gconf & reg.en_spreadcycle:
-            print("SpreadCycle mode enabled")
+            self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): SpreadCycle mode enabled")
         else:
-            print("StealthChop PWM mode enabled")
+            self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): StealthChop PWM mode enabled")
         if gconf & reg.shaft:
-            print("Inverse motor direction")
+            self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): Inverse motor direction")
         else:
-            print("Normal motor direction")
+            self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): Normal motor direction")
         if gconf & reg.index_otpw:
-            print("INDEX pin outputs overtemperature prewarning flag")
+            self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): INDEX pin outputs overtemperature prewarning flag")
         else:
-            print("INDEX shows the first microstep position of sequencer")
+            self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): INDEX shows the first microstep position of sequencer")
         if gconf & reg.index_step:
-            print("INDEX output shows step pulses from internal pulse generator")
+            self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): INDEX output shows step pulses from internal pulse generator")
         else:
-            print("INDEX output as selected by index_otpw")
+            self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): INDEX output as selected by index_otpw")
         if gconf & reg.mstep_reg_select:
-            print("Microstep resolution selected by MSTEP register")
+            self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): Microstep resolution selected by MSTEP register")
         else:
-            print("Microstep resolution selected by pins MS1, MS2")
+            self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): Microstep resolution selected by pins MS1, MS2")
 
-        print("---")
         return gconf
 
-
+#-----------------------------------------------------------------------------------------------
     def read_gstat(self):
         gstat = self.read_int(reg.GSTAT)
         if gstat & reg.reset:
-            print("The Driver has been reset since the last read access to GSTAT")
+            self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): The Driver has been reset since the last read access to GSTAT")
         if gstat & reg.drv_err:
-            print("""The driver has been shut down due to overtemperature or
-                        short circuit detection since the last read access""")
+            self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): The driver has been shut down due to overtemperature or short circuit detection since the last read access")
         if gstat & reg.uv_cp:
-            print("""Undervoltage on the charge pump.
-                        The driver is disabled in this case""")
+            self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): Undervoltage on the charge pump. The driver is disabled in this case")
         return gstat
 
+#-----------------------------------------------------------------------------------------------
     def clear_gstat(self):
-        print("clearing GSTAT")
+        self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): Clearing GSTAT")
         gstat = self.uart.read_int(reg.GSTAT)
 
         gstat = self.uart.set_bit(gstat, reg.reset)
@@ -376,155 +408,112 @@ class TMCStepper():
 
         self.write_reg_check(reg.GSTAT, gstat)
 
+#-----------------------------------------------------------------------------------------------
     def read_ioin(self):
         ioin = self.read_int(reg.IOIN)
-        print(bin(ioin))
-        if ioin & reg.io_spread:
-            print("spread is high")
-        else:
-            print("spread is low")
-
-        if ioin & reg.io_dir:
-            print("dir is high")
-        else:
-            print("dir is low")
-
-        if ioin & reg.io_step:
-            print("step is high")
-        else:
-            print("step is low")
-
-        if ioin & reg.io_enn:
-            print("en is high")
-        else:
-            print("en is low")
-
-        print("---")
         return ioin
 
-
-
+#-----------------------------------------------------------------------------------------------
     def read_chopconf(self):
-        print("---")
-        print("CHOPPER CONTROL")
         chopconf = self.read_int(reg.CHOPCONF)
-        print(bin(chopconf))
-
-        print(f"native {self.get_microstepping_resolution()} microstep setting")
+        self.LogFile.Log(f"TMCStepper({self.mtr_id}): Native {self.get_microstepping_resolution()} microstep setting")
 
         if chopconf & reg.intpol:
-            print("interpolation to 256 µsteps")
+            self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): Interpolation to 256 µsteps")
 
         if chopconf & reg.vsense:
-            print("1: High sensitivity, low sense resistor voltage")
+            self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): High sensitivity, low sense resistor voltage")
         else:
-            print("0: Low sensitivity, high sense resistor voltage")
-
-        print("---")
+            self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): Low sensitivity, high sense resistor voltage")
         return chopconf
 
-
-
+#-----------------------------------------------------------------------------------------------
     def get_direction_reg(self):
         gconf = self.read_int(reg.GCONF)
         return gconf & reg.shaft
 
-
-
+#-----------------------------------------------------------------------------------------------
     def set_direction_reg(self, direction):
         gconf = self.read_int(reg.GCONF)
         if direction:
-            print("write inverse motor direction")
+            self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): Setting inverse motor direction")
             gconf = self.set_bit(gconf, reg.shaft)
         else:
-            print("write normal motor direction")
+            self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): Setting normal motor direction")
             gconf = self.clear_bit(gconf, reg.shaft)
         self.write_reg_check(reg.GCONF, gconf)
         self._direction = not direction
 
-
-
+#-----------------------------------------------------------------------------------------------
     def get_iscale_analog(self):
         gconf = self.read_int(reg.GCONF)
         return gconf & reg.i_scale_analog
 
-
-
+#-----------------------------------------------------------------------------------------------
     def set_iscale_analog(self,en):
         gconf = self.read_int(reg.GCONF)
         if en:
-            print("activated Vref for current scale")
+            self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): Activated Vref for current scale")
             gconf = self.set_bit(gconf, reg.i_scale_analog)
         else:
-            print("activated 5V-out for current scale")
+            self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): Activated 5V-out for current scale")
             gconf = self.clear_bit(gconf, reg.i_scale_analog)
         self.write_reg_check(reg.GCONF, gconf)
 
-
-
+#-----------------------------------------------------------------------------------------------
     def get_vsense(self):
         chopconf = self.read_int(reg.CHOPCONF)
         return chopconf & reg.vsense
 
-
-
+#-----------------------------------------------------------------------------------------------
     def set_vsense(self,en):
         chopconf = self.read_int(reg.CHOPCONF)
         if en:
-            print("activated High sensitivity, low sense resistor voltage")
+            self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): Activated High sensitivity, low sense resistor voltage")
             chopconf = self.set_bit(chopconf, reg.vsense)
         else:
-            print("activated Low sensitivity, high sense resistor voltage")
+            self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): Activated Low sensitivity, high sense resistor voltage")
             chopconf = self.clear_bit(chopconf, reg.vsense)
         self.write_reg_check(reg.CHOPCONF, chopconf)
 
-
-
+#-----------------------------------------------------------------------------------------------
     def get_internal_rsense(self):
         gconf = self.read_int(reg.GCONF)
         return gconf & reg.internal_rsense
 
-
-
+#-----------------------------------------------------------------------------------------------
     def set_internal_rsense(self,en):
         gconf = self.read_int(reg.GCONF)
         if en:
-            print("activated internal sense resistors.")
-            print("VREF pin internally is driven to GND in this mode.")
-            print("This will most likely destroy your driver!!!")
+            self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): Activated internal sense resistors.")
+            self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): VREF pin internally is driven to GND in this mode.")
+            self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): This will most likely destroy your driver!!!")
             raise SystemExit
-            # gconf = self.set_bit(gconf, reg.internal_rsense)
-        print("activated operation with external sense resistors")
+        self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): Activated operation with external sense resistors")
         gconf = self.clear_bit(gconf, reg.internal_rsense)
         self.write_reg_check(reg.GCONF, gconf)
 
-
-
+#-----------------------------------------------------------------------------------------------
     def set_irun_ihold(self, ihold, irun, ihold_delay):
         ihold_irun = 0
 
         ihold_irun = ihold_irun | ihold << 0
         ihold_irun = ihold_irun | irun << 8
         ihold_irun = ihold_irun | ihold_delay << 16
-        print(f"ihold_irun: {bin(ihold_irun)}")
-
-        print("writing ihold_irun")
         self.write_reg_check(reg.IHOLD_IRUN, ihold_irun)
 
-
-
+#-----------------------------------------------------------------------------------------------
     def set_pdn_disable(self,pdn_disable):
         gconf = self.read_int(reg.GCONF)
         if pdn_disable:
-            print("enabled PDN_UART")
+            self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): Enabled PDN_UART")
             gconf = self.set_bit(gconf, reg.pdn_disable)
         else:
-            print("disabled PDN_UART")
+            self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): Disabled PDN_UART")
             gconf = self.clear_bit(gconf, reg.pdn_disable)
         self.write_reg_check(reg.GCONF, gconf)
 
-
-
+#-----------------------------------------------------------------------------------------------
     def set_current(self, run_current, hold_current_multiplier = 0.5,
                     hold_current_delay = 10, pdn_disable = True):
         cs_irun = 0
@@ -538,12 +527,12 @@ class TMCStepper():
 
         # If Current Scale is too low, turn on high sensitivity VSsense and calculate again
         if cs_irun < 16:
-            print("CS too low; switching to VSense True")
+            self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): CS too low; switching to VSense True")
             vfs = 0.180
             cs_irun = 32.0*1.41421*run_current/1000.0*(rsense+0.02)/vfs - 1
             self.set_vsense(True)
         else: # If CS >= 16, turn off high_senser
-            print("CS in range; using VSense False")
+            self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): CS in range; using VSense False")
             self.set_vsense(False)
 
         cs_irun = min(cs_irun, 31)
@@ -555,44 +544,34 @@ class TMCStepper():
         CS_IHold = round(CS_IHold)
         hold_current_delay = round(hold_current_delay)
 
-        print(f"cs_irun: {cs_irun}")
-        print(f"CS_IHold: {CS_IHold}")
-        print(f"Delay: {hold_current_delay}")
-
-        # return (float)(CS+1)/32.0 * (vsense() ? 0.180 : 0.325)/(rsense+0.02) / 1.41421 * 1000;
         run_current_actual = (cs_irun+1)/32.0 * (vfs)/(rsense+0.02) / 1.41421 * 1000
-        print(f"actual current: {round(run_current_actual)} mA")
+        self.LogFile.Log(f"TMCStepper({self.mtr_id}): Actual current: {round(run_current_actual)} mA")
 
         self.set_irun_ihold(CS_IHold, cs_irun, hold_current_delay)
-
         self.set_pdn_disable(pdn_disable)
 
-
-
+#-----------------------------------------------------------------------------------------------
     def get_spreadcycle(self):
         gconf = self.read_int(reg.GCONF)
         return gconf & reg.en_spreadcycle
 
-
-
+#-----------------------------------------------------------------------------------------------
     def set_spreadcycle(self,en_spread):
         gconf = self.read_int(reg.GCONF)
         if en_spread:
-            print("activated Spreadcycle")
+            self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): Activated Spreadcycle")
             gconf = self.set_bit(gconf, reg.en_spreadcycle)
         else:
-            print("activated Stealthchop")
+            self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): Activated Stealthchop")
             gconf = self.clear_bit(gconf, reg.en_spreadcycle)
         self.write_reg_check(reg.GCONF, gconf)
 
-
-
+#-----------------------------------------------------------------------------------------------
     def get_interpolation(self):
         chopconf = self.read_int(reg.CHOPCONF)
         return bool(chopconf & reg.intpol)
 
-
-
+#-----------------------------------------------------------------------------------------------
     def set_interpolation(self, en):
         chopconf = self.read_int(reg.CHOPCONF)
 
@@ -601,23 +580,18 @@ class TMCStepper():
         else:
             chopconf = self.clear_bit(chopconf, reg.intpol)
 
-        print(f"writing microstep interpolation setting: {str(en)}")
+        self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): Writing microstep interpolation setting: "+str(en))
         self.write_reg_check(reg.CHOPCONF, chopconf)
 
-
-
+#-----------------------------------------------------------------------------------------------
     def get_toff(self):
         chopconf = self.read_int(reg.CHOPCONF)
 
-        toff = chopconf & (reg.toff0 | reg.toff1 |
-                            reg.toff2 | reg.toff3)
-
+        toff = chopconf & (reg.toff0 | reg.toff1 | reg.toff2 | reg.toff3)
         toff = toff >> 0
-
         return toff
 
-
-
+#-----------------------------------------------------------------------------------------------
     def set_toff(self, toff):
         # Ensure toff is a four-bit value by zeroing out the top bits
         toff = toff & 0x0F
@@ -635,31 +609,26 @@ class TMCStepper():
         self.write_reg_check(reg.CHOPCONF, chopconf)
 
         # Log the action
-        print(f"writing toff setting: {str(toff)}")
+        self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): Writing toff setting: "+str(toff))
 
-
-
+#-----------------------------------------------------------------------------------------------
     def read_microstepping_resolution(self):
         chopconf = self.read_int(reg.CHOPCONF)
 
-        msresdezimal = chopconf & (reg.msres0 | reg.msres1 |
-                                    reg.msres2 | reg.msres3)
-
+        msresdezimal = chopconf & (reg.msres0 | reg.msres1 | reg.msres2 | reg.msres3)
         msresdezimal = msresdezimal >> 24
         msresdezimal = 8 - msresdezimal
 
         self._msres = int(math.pow(2, msresdezimal))
         self._steps_per_rev = self._fullsteps_per_rev * self._msres
-
+        
         return self._msres
 
-
-
+#-----------------------------------------------------------------------------------------------
     def get_microstepping_resolution(self):
         return self._msres
 
-
-
+#-----------------------------------------------------------------------------------------------
     def set_microstepping_resolution(self, msres):
         chopconf = self.read_int(reg.CHOPCONF)
         #setting all bits to zero
@@ -669,18 +638,16 @@ class TMCStepper():
         msresdezimal = 8 - msresdezimal
         chopconf = chopconf | msresdezimal <<24
 
-        print(f"writing {msres} microstep setting")
+        self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): Writing "+str(msres)+" microstep setting")
         self.write_reg_check(reg.CHOPCONF, chopconf)
 
         self._msres = msres
         self._steps_per_rev = self._fullsteps_per_rev * self._msres
-
         self.set_mstep_resolution_reg_select(True)
 
         return True
 
-
-
+#-----------------------------------------------------------------------------------------------
     def set_mstep_resolution_reg_select(self, en):
         gconf = self.read_int(reg.GCONF)
 
@@ -689,79 +656,58 @@ class TMCStepper():
         else:
             gconf = self.clear_bit(gconf, reg.mstep_reg_select)
 
-        print(f"writing MStep Reg Select: {en}")
+        self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): Writing MStep Reg Select: "+str(en))
         self.write_reg_check(reg.GCONF, gconf)
 
-
-
+#-----------------------------------------------------------------------------------------------
     def get_interface_transmission_counter(self):
         ifcnt = self.read_int(reg.IFCNT)
-        print(f"Interface Transmission Counter: {ifcnt}")
         return ifcnt
 
-
-
+#-----------------------------------------------------------------------------------------------
     def get_tstep(self):
         tstep = self.read_int(reg.TSTEP)
         return tstep
 
-
-
+#-----------------------------------------------------------------------------------------------
     def set_vactual(self, vactual):
         self.write_reg_check(reg.VACTUAL, vactual)
 
-
-
+#-----------------------------------------------------------------------------------------------
     def get_stallguard_result(self):
         sg_result = self.read_int(reg.SG_RESULT)
         return sg_result
 
-
-
+#-----------------------------------------------------------------------------------------------
     def set_stallguard_threshold(self, threshold):
-        print(f"sgthrs {bin(threshold)}")
-
-        print("writing sgthrs")
         self.write_reg_check(reg.SGTHRS, threshold)
 
-
-
+#-----------------------------------------------------------------------------------------------
     def set_coolstep_threshold(self, threshold):
-        print(f"tcoolthrs {bin(threshold)}")
-
-        print("writing tcoolthrs")
         self.write_reg_check(reg.TCOOLTHRS, threshold)
 
-
-
+#-----------------------------------------------------------------------------------------------
     def get_microstep_counter(self):
         mscnt = self.read_int(reg.MSCNT)
         return mscnt
 
-
-
+#-----------------------------------------------------------------------------------------------
     def get_microstep_counter_in_steps(self, offset=0):
         step = (self.get_microstep_counter()-64)*(self._msres*4)/1024
         step = (4*self._msres)-step-1
         step = round(step)
         return step+offset
 
+#-----------------------------------------------------------------------------------------------
     def set_direction_pin_or_reg(self, direction):
-        """sets the motor shaft direction to the given value: 0 = CCW; 1 = CW
-        will use the reg, if pin==-1, otherwise use the pin
-
-        Args:
-            direction (bool): motor shaft direction: False = CCW; True = CW
-        """
         if self._pin_dir != -1:
-            pass
-            #self.set_direction_pin(direction)
+            self.set_direction_pin(direction)
         else:
             self.set_direction_reg(not direction) #no clue, why this has to be inverted
 
-
+#-----------------------------------------------------------------------------------------------
     def set_vactual_dur(self, vactual, duration=0, acceleration=0,
-                             show_stallguard_result=False, show_tstep=False):
+                        show_stallguard_result=False, show_tstep=False):
         """sets the register bit "VACTUAL" to to a given value
         VACTUAL allows moving the motor by UART control.
         It gives the motor velocity in +-(2^23)-1 [μsteps / t]
@@ -785,13 +731,6 @@ class TMCStepper():
         if vactual<0:
             acceleration = -acceleration
 
-        if duration != 0:
-            print(f"vactual: {vactual} for {duration} sec")
-        else:
-            print(f"vactual: {vactual}")
-        print(str(bin(vactual)))
-
-        print("writing vactual")
         if acceleration == 0:
             self.set_vactual(int(round(vactual)))
 
@@ -825,43 +764,22 @@ class TMCStepper():
         self.set_vactual(0)
         return self._stop
 
-
+#-----------------------------------------------------------------------------------------------
     def set_movement_abs_rel(self, movement_abs_rel):
-        """set whether the movement should be relative or absolute by default.
-        See the Enum MovementAbsoluteRelative
-
-        Args:
-            movement_abs_rel (enum): whether the movement should be relative or absolute
-        """
         self._movement_abs_rel = movement_abs_rel
 
-
-
+#-----------------------------------------------------------------------------------------------
     def get_current_position(self):
-        """returns the current motor position in µsteps
-
-        Returns:
-            int: current motor position
-        """
         return self._current_pos
 
-
-
+#-----------------------------------------------------------------------------------------------
     def set_current_position(self, new_pos):
-        """overwrites the current motor position in µsteps
-
-        Args:
-            new_pos (int): new position of the motor in µsteps
-        """
         self._current_pos = new_pos
-
-
+        
+#-----------------------------------------------------------------------------------------------
     def set_speed(self, speed):
-        """sets the motor speed in steps per second
+        # Sets the motor speed in steps per second
 
-        Args:
-            speed (int): speed in steps/sec
-        """
         if speed == self._speed:
             return
         speed = self.constrain(speed, -self._max_speed, self._max_speed)
@@ -871,28 +789,19 @@ class TMCStepper():
             self._step_interval = abs(1000000.0 / speed)
             if speed > 0:
                 self.set_direction_pin_or_reg(1)
-                print("going CW")
             else:
                 self.set_direction_pin_or_reg(0)
-                print("going CCW")
         self._speed = speed
 
-
+#-----------------------------------------------------------------------------------------------
     def set_speed_fullstep(self, speed):
-        """sets the motor speed in fullsteps per second
-
-        Args:
-            speed (int): speed in fullsteps/sec
-        """
         self.set_speed(speed*self.get_microstepping_resolution())
 
 
+#-----------------------------------------------------------------------------------------------
     def set_max_speed(self, speed):
-        """sets the maximum motor speed in µsteps per second
+        # Sets the maximum motor speed in microsteps per second
 
-        Args:
-            speed (int): speed in µsteps per second
-        """
         if speed < 0.0:
             speed = -speed
         if self._max_speed != speed:
@@ -906,101 +815,44 @@ class TMCStepper():
                 self._n = (self._speed * self._speed) / (2.0 * self._acceleration) # Equation 16
                 self.compute_new_speed()
 
-
-
+#-----------------------------------------------------------------------------------------------
     def set_max_speed_fullstep(self, speed):
-        """sets the maximum motor speed in fullsteps per second
-
-        Args:
-            speed (int): maximum speed in fullsteps/sec
-        """
         self.set_max_speed(speed*self.get_microstepping_resolution())
 
-
-
+#-----------------------------------------------------------------------------------------------
     def get_max_speed(self):
-        """returns the maximum motor speed in steps per second
-
-        Returns:
-            int: current maximum speed in steps/sec
-        """
         return self._max_speed
 
-
-
+#-----------------------------------------------------------------------------------------------
     def set_acceleration(self, acceleration):
-        """sets the motor acceleration/deceleration in µsteps per sec per sec
-
-        Args:
-            acceleration (int): acceleration/deceleration in µsteps per sec per sec
-        """
+        # Sets the motor acceleration/deceleration in microsteps per sec per sec
         if acceleration == 0.0:
             return
         acceleration = abs(acceleration)
         if self._acceleration != acceleration:
-            # Recompute _n per Equation 17
             self._n = self._n * (self._acceleration / acceleration)
-            # New c0 per Equation 7, with correction per Equation 15
             self._c0 = 0.676 * math.sqrt(2.0 / acceleration) * 1000000.0 # Equation 15
             self._acceleration = acceleration
             self.compute_new_speed()
 
-
-
+#-----------------------------------------------------------------------------------------------
     def set_acceleration_fullstep(self, acceleration):
-        """sets the motor acceleration/deceleration in fullsteps per sec per sec
-
-        Args:
-            acceleration (int): acceleration/deceleration in fullsteps per sec per sec
-        """
         self.set_acceleration(acceleration*self.get_microstepping_resolution())
 
-
-
+#-----------------------------------------------------------------------------------------------
     def get_acceleration(self):
-        """returns the motor acceleration/deceleration in steps per sec per sec
-
-        Returns:
-            int: acceleration/deceleration in µsteps per sec per sec
-        """
         return self._acceleration
 
-
-
+#-----------------------------------------------------------------------------------------------
     def stop(self, stop_mode = StopMode.HARDSTOP):
-        """stop the current movement
-
-        Args:
-            stop_mode (enum): whether the movement should be stopped immediately or softly
-                (Default value = StopMode.HARDSTOP)
-        """
         self._stop = stop_mode
 
-
-
+#-----------------------------------------------------------------------------------------------
     def get_movement_phase(self):
-        """return the current Movement Phase
-
-        Returns:
-            movement_phase (enum): current Movement Phase
-        """
         return self._movement_phase
 
+#-----------------------------------------------------------------------------------------------
     def run_to_position_steps(self, steps, movement_abs_rel = None):
-        """runs the motor to the given position.
-        with acceleration and deceleration
-        blocks the code until finished or stopped from a different thread!
-        returns true when the movement if finished normally and false,
-        when the movement was stopped
-
-        Args:
-            steps (int): amount of steps; can be negative
-            movement_abs_rel (enum): whether the movement should be absolut or relative
-                (Default value = None)
-
-        Returns:
-            stop (enum): how the movement was finished
-        """
         if movement_abs_rel is None:
             movement_abs_rel = self._movement_abs_rel
 
@@ -1021,32 +873,21 @@ class TMCStepper():
         self._movement_phase = MovementPhase.STANDSTILL
         return self._stop
 
+#-----------------------------------------------------------------------------------------------
     def run(self):
-        """calculates a new speed if a speed was made
-
-        returns true if the target position is reached
-        should not be called from outside!
-        """
         if self.run_speed(): #returns true, when a step is made
             self.compute_new_speed()
         return self._speed != 0.0 and self.distance_to_go() != 0
 
-
-
+#-----------------------------------------------------------------------------------------------
     def distance_to_go(self):
-        """returns the remaining distance the motor should run"""
         return self._target_pos - self._current_pos
 
-
-
+#-----------------------------------------------------------------------------------------------
     def compute_new_speed(self):
-        """returns the calculated current speed depending on the acceleration
+        # Generate stepper-motor speed profiles in real time" by David Austin
+        # https://www.embedded.com/generate-stepper-motor-speed-profiles-in-real-time/
 
-        this code is based on:
-        "Generate stepper-motor speed profiles in real time" by David Austin
-        https://www.embedded.com/generate-stepper-motor-speed-profiles-in-real-time/
-        https://web.archive.org/web/20140705143928/http://fab.cba.mit.edu/classes/MIT/961.09/projects/i0/Stepper_Motor_Speed_Profile.pdf
-        """
         distance_to = self.distance_to_go() # +ve is clockwise from current location
         steps_to_stop = (self._speed * self._speed) / (2.0 * self._acceleration) # Equation 16
         if ((distance_to == 0 and steps_to_stop <= 2) or
@@ -1056,7 +897,6 @@ class TMCStepper():
             self._speed = 0.0
             self._n = 0
             self._movement_phase = MovementPhase.STANDSTILL
-            print("time to stop")
             return
 
         if distance_to > 0:
@@ -1094,10 +934,8 @@ class TMCStepper():
             self._pin_step.value=False
             if distance_to > 0:
                 self.set_direction_pin_or_reg(1)
-                print("going CW")
             else:
                 self.set_direction_pin_or_reg(0)
-                print("going CCW")
             self._movement_phase = MovementPhase.ACCELERATING
         else:
             # Subsequent step. Works for accel (n is +_ve) and decel (n is -ve).
@@ -1111,10 +949,8 @@ class TMCStepper():
         if self._direction == 0:
             self._speed = -self._speed
 
-
-
+#-----------------------------------------------------------------------------------------------
     def run_speed(self):
-        """this methods does the actual steps with the current speed"""
         # Don't do anything unless we actually have a step interval
         if not self._step_interval:
             return False
@@ -1131,112 +967,49 @@ class TMCStepper():
             return True
         return False
 
-
-
+#-----------------------------------------------------------------------------------------------
     def make_a_step(self):
-        """method that makes on step
 
-        for the TMC2209 there needs to be a signal duration of minimum 100 ns
-        """
         self._pin_step.value=True
-        sleep_ns(1000)
+        time.sleep(1/1000/1000)
         self._pin_step.value=False
-        sleep_ns(1000)
+        time.sleep(1/1000/1000)
 
-        #print("one step")
-
-
+#-----------------------------------------------------------------------------------------------
     def rps_to_vactual(self, rps, steps_per_rev, fclk = 12000000):
-        """converts rps -> vactual
+        # rps (float): revolutions per second
+        # steps_per_rev (int): steps per revolution
+        # fclk (int): clock speed of the tmc (Default value = 12000000)
 
-        Args:
-            rps (float): revolutions per second
-            steps_per_rev (int): steps per revolution
-            fclk (int): clock speed of the tmc (Default value = 12000000)
-
-        Returns:
-            vactual (int): value for vactual
-        """
         return int(round(rps / (fclk / 16777216) * steps_per_rev))
 
 
+#-----------------------------------------------------------------------------------------------
     def vactual_to_rps(self, vactual, steps_per_rev, fclk = 12000000):
-        """converts vactual -> rps
+        # vactual (int): value for VACTUAL
+        # steps_per_rev (int): steps per revolution
+        # fclk (int): clock speed of the tmc (Default value = 12000000)
 
-        Args:
-            vactual (int): value for VACTUAL
-            steps_per_rev (int): steps per revolution
-            fclk (int): clock speed of the tmc (Default value = 12000000)
-
-        Returns:
-            rps (float): revolutions per second
-        """
         return vactual * (fclk / 16777216) / steps_per_rev
 
-
+#-----------------------------------------------------------------------------------------------
     def rps_to_steps(self, rps, steps_per_rev):
-        """converts rps -> steps/second
-
-        Args:
-            rps (float): revolutions per second
-            steps_per_rev (int): steps per revolution
-
-        Returns:
-            steps (int): steps per second
-        """
         return rps * steps_per_rev
 
+#-----------------------------------------------------------------------------------------------
     def steps_to_rps(self, steps, steps_per_rev):
-        """converts steps/second -> rps
-
-        Args:
-            steps (int): speed in steps per second
-            steps_per_rev (int): steps per revolution
-
-        Returns:
-            rps (float): revolutions per second
-        """
         return steps / steps_per_rev
 
-
+#-----------------------------------------------------------------------------------------------
     def rps_to_tstep(self, rps, steps_per_rev, msres):
-        """converts rps -> tstep
-
-        Args:
-            rps (float): revolutions per second
-            steps_per_rev (int): steps per revolution
-            msres (int): µstep resolution
-
-        Returns:
-            tstep (int): time per step
-        """
         return int(round(12000000 / (rps_to_steps(rps, steps_per_rev) * 256 / msres)))
 
-
+#-----------------------------------------------------------------------------------------------
     def steps_to_tstep(self, steps, msres):
-        """converts steps/second -> tstep
-
-        Args:
-            steps (int): speed in steps per second
-            msres (int): µstep resolution
-
-        Returns:
-            tstep (int): time per step
-        """
         return int(round(12000000 / (steps * 256 / msres)))
 
-
+#-----------------------------------------------------------------------------------------------
     def constrain(self, val, min_val, max_val):
-        """constrains a value between a min and a max
-
-        Args:
-            val (int): value that should be constrained
-            min_val (int): minimum value
-            max_val (int): maximum value
-
-        Returns:
-            int: constrained value
-        """
         if val < min_val:
             return min_val
         if val > max_val:

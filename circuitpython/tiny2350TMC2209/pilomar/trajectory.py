@@ -9,7 +9,7 @@ class trajectorypoint():
         close to the actual curve that the target follows.
         trajectory yymmddhhmmss motorname start startangle end endangle startpos endpos
              0           1         2         3       4       5       6     7        8  """
-    def __init__(self,line):
+    def __init__(self, line, Clock):
         """ line = the trajectory entry received from the RPi.
 
             For backwards compatibility, if the start/end positions are not in the message
@@ -19,6 +19,7 @@ class trajectorypoint():
         # The remote server will re-send the record if it doesn't get created this time.
         # trajectory 20210410163444 azimuth 20210410163444 256.57984815616663 20210410163544 256.7949264136615
         lineitems = line.split(' ')
+        self.Clock = Clock
         self.StartTime = TimeStringToInt(lineitems[3])
         self.StartAngle = float(lineitems[4])
         self.EndTime = TimeStringToInt(lineitems[5]) # In the future. Could overflow 'int' eventually and fail somewhere.
@@ -37,7 +38,7 @@ class trajectorypoint():
             self.StepsPerSecond = 0.0
         print("trajectory: Start",self.StartPosition,"end",self.EndPosition,"gradient",self.StepsPerSecond)
 
-    def Printable(self,clock=None):
+    def Printable(self):
         """ Generate test printable version of the entry. """
         line = ''
         line += IntToTimeString(self.StartTime) + " "
@@ -53,7 +54,7 @@ class trajectorypoint():
             we need to go to the 'rise' position and wait for it to appear.
             if the trajectory segment has expired, the expected position is the end of the segment. """
         if timeint == None:
-            timeint, timedec = Clock.NowDecimal()
+            timeint, timedec = self.Clock.NowDecimal()
         if timeint >= self.EndTime:
             timeint = self.EndTime # Cannot proceed past the end of the planned trajectory.
             timedec = 0.0
@@ -69,16 +70,19 @@ class trajectorypoint():
 #-----------------------------------------------------------------------------------------------
 class trajectory():
     """ A complete trajectory for a target. Consists of a list of individual segments in sequence. """
-    def __init__(self,name):
+    
+    def __init__(self, name, LogFile, ExceptionCounter, Clock):
         self.TrajectoryList = []
+        self.LogFile = LogFile
+        self.ExceptionCounter = ExceptionCounter
+        self.Clock = Clock
         self.Valid = False # Indicates that the trajectory is useable.
         self.MotorName = name # The parent MotorName to match log messages with the parent motor.
 
     def Clean(self): # Trim expired entries from the trajectory list.
         """ All the entries in Trajectory List should complete in the future. """
-        while len(self.TrajectoryList) > 0 and self.TrajectoryList[0].EndTime < Clock.Now():
-            LogFile.Log('trajectory.Clean: Expired (', self.MotorName, self.TrajectoryList[0].Printable(), ')')
-            #temp = self.TrajectoryList.pop(0) # Remove the first entry from the list, it's not needed anymore.
+        while len(self.TrajectoryList) > 0 and self.TrajectoryList[0].EndTime < self.Clock.Now():
+            self.LogFile.Log('trajectory.Clean: Expired (', self.MotorName, self.TrajectoryList[0].Printable(), ')')
             _ = self.TrajectoryList.pop(0) # Remove the first entry from the list, it's not needed anymore.
         self.Validate() # Is the trajectory useable?
 
@@ -101,11 +105,11 @@ class trajectory():
             # If there are later entries in the list, remove them, they will be resent by the host.
             while len(self.TrajectoryList) > 0 and starttime <= self.TrajectoryList[-1].StartTime:
                 self.TrajectoryList = self.TrajectoryList[:-1] # Remove last list entry, it's being replaced by new values.
-            self.TrajectoryList.append(trajectorypoint(line)) # Add new entry to the end of the list.
+            self.TrajectoryList.append(trajectorypoint(line, self.Clock)) # Add new entry to the end of the list.
             result = True # Entry creation was successful.
         except Exception as e:
-            LogFile.Log('trajectory.Add(', self.MotorName ,'): ' + str(line) + ': Failed to create new trajectory point: ' + str(e))
-            ExceptionCounter.Raise() # Increment exception count for the session.
+            self.LogFile.Log('trajectory.Add(', self.MotorName ,'): ' + str(line) + ': Failed to create new trajectory point: ' + str(e))
+            self.ExceptionCounter.Raise() # Increment exception count for the session.
         self.Validate() # Is the trajectory useable?
         return result
 
@@ -121,7 +125,7 @@ class trajectory():
         if len(self.TrajectoryList) > 0:
             validuntil = self.TrajectoryList[-1].EndTime
         else:
-            validuntil = Clock.Now() # Trajectory is empty, so it expires now!
+            validuntil = self.Clock.Now() # Trajectory is empty, so it expires now!
         return validuntil
 
     def Validate(self):
@@ -129,7 +133,7 @@ class trajectory():
             True means the ExpectedPosition() method can be trusted.
             False means it's not valid yet. """
         self.Valid = False
-        if self.ValidUntil() > Clock.Now(): # Trajectory valid.
+        if self.ValidUntil() > self.Clock.Now(): # Trajectory valid.
             self.Valid = True
 
     def EndAngle(self):

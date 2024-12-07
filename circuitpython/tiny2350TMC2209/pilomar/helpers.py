@@ -1,6 +1,11 @@
 # Based on https://github.com/Short-bus/pilomar
 # Simplified for use with TINY2350
 
+import board
+import digitalio
+import time
+import gc
+
 #-----------------------------------------------------------------------------------------------
 class GPIOpin():
 
@@ -87,11 +92,6 @@ class statusled():
     """ Pimoroni Tiny RGB LED version of RGB LED handling.
         The RGB LED is a collection of three led() objects. """
     def __init__(self):
-        # Raspberry Pi Pico & Pico 2
-        #self.LedR = led(board.GP18) # LED_R) # Create LED for RED channel.
-        #self.LedG = led(board.GP19) # LED_G) # Create LED for GREEN channel.
-        #self.LedB = led(board.GP20) # LED_B) # Create LED for BLUE channel.
-        # Pimoroni Tiny...
         self.LedR = led(board.LED_R) # Create LED for RED channel.
         self.LedG = led(board.LED_G) # Create LED for GREEN channel.
         self.LedB = led(board.LED_B) # Create LED for BLUE channel.
@@ -175,7 +175,8 @@ class exceptioncounter():
         problems. Implemented as a class so that it can be called consistently
         from inside other methods and objects.
         This will also automatically set the LED to the error color. """
-    def __init__(self):
+    def __init__(self, StatusLed):
+        self.StatusLed = StatusLed
         self.Count = 0 # Initialize the counter.
 
     def Reset(self):
@@ -185,7 +186,7 @@ class exceptioncounter():
     def Raise(self):
         try:
             self.Count += 1 # Increment the count.
-            StatusLed.Task('error') # Set the LED to show an error was trapped.
+            self.StatusLed.Task('error') # Set the LED to show an error was trapped.
             print("Exception trapped.")
         except Exception as e:
             print("exceptioncounter.Raise() failed:",str(e))
@@ -265,10 +266,14 @@ class logfile():
         """
     def __init__(self):
         self.Lines = []
+        self.RPi = None
         self.BufferSize = 0
         self.MaxLines = 20 # Do not store more than 20 lines due to memory constraints.
         self.Overflows = 0 # How many times has the buffer filled?
 
+    def setHost(self, RPi):
+        self.RPi = RPi
+        
     def Log(self,line,*args):
         """ Accept any number of arguments, convert them into a single log file message. """
         for x in args:
@@ -290,7 +295,7 @@ class logfile():
     def SendAll(self):
         """ Call this to send ALL the outstanding log entries. """
         for line in self.Lines:
-            RPi.Write('log :' + line,log=False)
+            self.RPi.Write('log :' + line,log=False)
         self.Lines = []
         self.BufferSize = 0
 
@@ -301,7 +306,7 @@ class logfile():
             tottemp = 0
             for line in self.Lines: tottemp += len(line)
             self.BufferSize = tottemp
-            RPi.Write('log :' + line,log=False)
+            self.RPi.Write('log :' + line,log=False)
 
     def SendCheck(self,force=False):
         """ If local buffer is large enough, send it to the host
@@ -322,7 +327,10 @@ class clock():
         If the Thonny connection is made AFTER the program has started, the
         TimeDelta value will no longer be needed when the internal clock itself
         is synchronised. If this is detected, TimeDelta is cleared and rechecked. """
-    def __init__(self,TimeValue=None):
+    def __init__(self, LogFile, ExceptionCounter, RPi, TimeValue=None):
+        self.LogFile = LogFile
+        self.ExceptionCounter = ExceptionCounter
+        self.RPi = RPi
         self.TimeDelta = 0 # Offset from machine clock to current date/time (in seconds).
         self.ClockSynchronised = False # Indicates that the clock is synchronised.
         self.PrevTime = time.time() # Record the initial unmodified time of the clock. Used to detect if machine clock gets updated.
@@ -349,7 +357,7 @@ class clock():
         result = False
         if TimeInt != None and TimeInt > tn: # We can nudge the clock forward, never backwards.
             self.SetTimeFromInt(TimeInt)
-            LogFile.Log("UpdateClockFromInt(",IntToTimeString(TimeInt),") replaces",IntToTimeString(tn),"Updated clock.")
+            self.LogFile.Log("UpdateClockFromInt(",IntToTimeString(TimeInt),") replaces",IntToTimeString(tn),"Updated clock.")
             result = True
         return result
 
@@ -370,8 +378,8 @@ class clock():
             result = TimeStringToInt(TimeString)
             self.UpdateClockFromInt(result)
         except:
-            LogFile.Log("UpdateClockFromString(",TimeString,") failed.")
-            ExceptionCounter.Raise() # Increment exception count for the session.
+            self.LogFile.Log("UpdateClockFromString(",TimeString,") failed.")
+            self.ExceptionCounter.Raise() # Increment exception count for the session.
         return result
 
     def CheckTimeDelta(self,now):
@@ -381,15 +389,14 @@ class clock():
             print("c.CTD: Internal clock may have synchronised. Resetting clock synchronisation.")
             self.TimeDelta = 0
             self.ClockSynchronised = False
-            LogFile.Log("CheckTimeDelta(): Internal clock may have synchronised. Resetting clock synchronisation.")
+            self.LogFile.Log("CheckTimeDelta(): Internal clock may have synchronised. Resetting clock synchronisation.")
         self.PrevTime = now
 
     def SetTimeFromInt(self,TimeInt):
         """ Set clock offset from an INTEGER TIME. """
         self.TimeDelta = max(TimeInt - time.time(),0) # Time offset is the received time - the realtime clock time. Cannot be negative.
         self.ClockSynchronised = True
-        RPi.Write('# Clock now ' + IntToTimeString(self.Now()) + ' timedelta ' + str(self.TimeDelta) + ' seconds.')
-        #result = True
+        self.RPi.Write('# Clock now ' + IntToTimeString(self.Now()) + ' timedelta ' + str(self.TimeDelta) + ' seconds.')
 
     def SetTimeFromString(self,TimeString):
         """ Set clock offset from a CHARACTER TIME. """
@@ -399,8 +406,8 @@ class clock():
         try:
             result = self.SetTimeFromInt(TimeStringToInt(TimeString))
         except Exception as e:
-            LogFile.Log('clock.SetTimeFromString: Invalid timestamp string (', TimeString, ')')
-            ExceptionCounter.Raise() # Increment exception count for the session.
+            self.LogFile.Log('clock.SetTimeFromString: Invalid timestamp string (', TimeString, ')')
+            self.ExceptionCounter.Raise() # Increment exception count for the session.
         return result
 
     def Now(self):
@@ -478,16 +485,6 @@ def IsFloat(text):
         # Don't increment exception count for this one.
     return result
 
-def SendCpuStatus():
-        """ Report microcontroller condition back to RPi. """
-        line = 'cpu status ' + IntToTimeString(Clock.Now()) + ' '
-        line += str(microcontroller.cpus[0].reset_reason).split('.')[-1].replace(' ','_') + ' '
-        line += str(microcontroller.cpus[0].frequency / 1e6) + ' '
-        line += '0.0 ' # s/b 'volt: ' + str(microcontroller.cpus[0].voltage) + ', '
-        line += str(gc.mem_alloc()) + ' ' + str(gc.mem_free()) + ' '
-        line += str(int(microcontroller.cpus[0].temperature)) + ' '
-        RPi.Write(line)
-
 def ns_sleep(delay=1.0):
         """ Provide a SLEEP function which supports pauses less than 1 millisecond.
             Standard time.sleep() does not seem to work below 1 millisecond.
@@ -517,31 +514,3 @@ def check_version():
                         CircuitPythonVersion = elements # Allows code to adapt to different CircuitPython versions.
 
     return (CircuitPythonVersion, Bootline)
-
-#-----------------------------------------------------------------------------------------------
-# Feature dependent routines
-#-----------------------------------------------------------------------------------------------
-if 'VMOT' in FEATURES:
-    # Use ADC to read VMOT value. We can detect if motors are actually powered.
-    # - Losing power is an easy problem to detect and report.
-    # - Also can give clues if running off batteries and they are running low.
-    import analogio
-    VMotADC = analogio.AnalogIn(board.A0)
-
-    def VMot():
-        """ Read the current MotorPower ADC value directly.
-            Don't scale for voltage, let the host deal with that. """
-        result = VMotADC.value
-        return result
-
-if 'TINY' in FEATURES:
-    BootBCM = GPIOpin(board.USER_SW,'boot') # Tiny RP2040 # The BOOTSEL button.
-    BootBCM.SetDirection(digitalio.Direction.INPUT)
-    BootBCM.pull = digitalio.Pull.UP # The button goes LOW when pressed.
-
-if 'RP2350' in FEATURES:
-    microcontroller.cpu.frequency = 200000000 # Set to 200MHz (default 150MHz on Tiny2350)
-    print("Set clock frequency on",board.board_id,
-      "from:",(temp / 1e6),"MHz",
-      "to:",(microcontroller.cpu.frequency / 1e6),"MHz")
-
