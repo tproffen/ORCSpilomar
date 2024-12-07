@@ -1,6 +1,8 @@
 # Based on https://github.com/Short-bus/pilomar
 # Simplified for use with TINY2350
 
+from pilomar.helpers import *
+
 #-----------------------------------------------------------------------------------------------
 class trajectorypoint():
     """ An individual segment in a trajectory.
