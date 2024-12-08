@@ -6,6 +6,8 @@ import board
 import time
 import gc
 
+from pilomar.helpers import *
+
 #-----------------------------------------------------------------------------------------------
 class uarthost():
     """ UART serial communication handler.

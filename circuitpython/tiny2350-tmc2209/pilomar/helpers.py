@@ -281,10 +281,12 @@ class logfile():
             else: a = str(x) # Convert all additional items to strings and append them.
             line = (line + ' ' + a).strip()
         if self.Clock == None:
-            line = IntToTimeString(time.time()) + ":" + line + '\n'
+            line = IntToTimeString(time.time()) + ":" + line
         else:
-            line = IntToTimeString(self.Clock.Now()) + ":" + line + '\n'
+            line = IntToTimeString(self.Clock.Now()) + ":" + line
+        print("logfile.Log:", line)
         if len(self.Lines) < self.MaxLines:
+            line = line + '\n'
             self.Lines.append(line)
             self.BufferSize += len(line)
         else:

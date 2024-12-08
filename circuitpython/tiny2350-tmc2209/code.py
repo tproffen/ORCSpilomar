@@ -27,7 +27,7 @@ print("CircuitPython version:",CircuitPythonVersion,"environment:",Bootline)
 # Over clock the TINY a bit :)
 microcontroller.cpu.frequency = 200000000 # Set to 200MHz
 
-# Status LED 
+# Status LED
 StatusLed = statusled()
 StatusLed.Task('init')
 time.sleep(1)
@@ -52,9 +52,9 @@ Clock = clock(LogFile, ExceptionCounter, RPi, TimeValue=time.time()) # Simulate 
 LogFile.Clock = Clock # Tell the LogFile which clock to use.
 RPi.Clock = Clock
 
-# Motors 
+# Motors
 Azimuth = steppermotor('azimuth', LogFile, ExceptionCounter, StatusLed, Clock, RPi, id=0)
-Azimuth.SetPins(stepBCM=AzimuthStepBCM, directionBCM=CommonDirectionBCM, enableBCM=CommonEnableBCM, faultBCM=AzimuthFaultBCM) 
+Azimuth.SetPins(stepBCM=AzimuthStepBCM, directionBCM=CommonDirectionBCM, enableBCM=CommonEnableBCM, faultBCM=AzimuthFaultBCM)
 Azimuth.SetConfig(gearratio=(60*4),motorstepsperrev=400,minangle=45.0,maxangle=315.0,restangle=180.0,currentangle=180.0,orientation=1,backlashangle=0.0)
 
 Altitude = steppermotor('altitude', LogFile, ExceptionCounter, StatusLed, Clock, RPi, id=1)
@@ -91,7 +91,7 @@ try:
         except Exception as e:
             LogFile.Log("Main:RPi.Read failed.",e)
             ExceptionCounter.Raise() # Increment exception count for the session.
-            
+
         try:
             if len(line) != 0: Process.ProcessInput(line) # Process it.
         except Exception as e:

@@ -132,38 +132,32 @@ class TMCStepper():
     _msres = -1
     _steps_per_rev = 0
     _fullsteps_per_rev = 400
-
-    NO = 0
-    SOFTSTOP = 1
-    HARDSTOP = 2
-
-
     _direction = True
-
     _stop = StopMode.NO
     _starttime = 0
     _sg_callback = None
 
     _msres = -1
     _steps_per_rev = 0
-    _fullsteps_per_rev = 200
+    _fullsteps_per_rev = 400
 
-    _current_pos = 0                 # current position of stepper in steps
-    _target_pos = 0                  # the target position in steps
+    _current_pos = 0                # current position of stepper in steps
+    _target_pos = 0                 # the target position in steps
     _speed = 0.0                    # the current speed in steps per second
-    _max_speed = 1.0                 # the maximum speed in steps per second
-    _max_speed_homing = 200           # the maximum speed in steps per second for homing
+    _max_speed = 1.0                # the maximum speed in steps per second
+    _max_speed_homing = 200         # the maximum speed in steps per second for homing
     _acceleration = 1.0             # the acceleration in steps per second per second
-    _acceleration_homing = 10000     # the acceleration in steps per second per second for homing
+    _acceleration_homing = 10000    # the acceleration in steps per second per second for homing
     _sqrt_twoa = 1.0                # Precomputed sqrt(2*_acceleration)
-    _step_interval = 0               # the current interval between two steps
-    _min_pulse_width = 1              # minimum allowed pulse with in microseconds
-    _last_step_time = 0               # The last step time in microseconds
+    _step_interval = 0              # the current interval between two steps
+    _min_pulse_width = 1            # minimum allowed pulse with in microseconds
+    _last_step_time = 0             # The last step time in microseconds
     _n = 0                          # step counter
     _c0 = 0                         # Initial step size in microseconds
     _cn = 0                         # Last step size in microseconds
     _cmin = 0                       # Min step size in microseconds based on maxSpeed
     _sg_threshold = 100             # threshold for stallguard
+    
     _movement_abs_rel = MovementAbsRel.ABSOLUTE
     _movement_phase = MovementPhase.STANDSTILL
 
@@ -699,6 +693,14 @@ class TMCStepper():
         return step+offset
 
 #-----------------------------------------------------------------------------------------------
+    def set_direction_pin(self, direction):
+        if self._pin_dir != -1:
+            self._direction = direction
+            self._pin_dir.SetValue(direction)
+        else:
+            self.LogFile.Log("TMCStepper("+str(self.mtr_id)+"): Direction pin not defined.")
+            
+#-----------------------------------------------------------------------------------------------
     def set_direction_pin_or_reg(self, direction):
         if self._pin_dir != -1:
             self.set_direction_pin(direction)
@@ -708,22 +710,7 @@ class TMCStepper():
 #-----------------------------------------------------------------------------------------------
     def set_vactual_dur(self, vactual, duration=0, acceleration=0,
                         show_stallguard_result=False, show_tstep=False):
-        """sets the register bit "VACTUAL" to to a given value
-        VACTUAL allows moving the motor by UART control.
-        It gives the motor velocity in +-(2^23)-1 [μsteps / t]
-        0: Normal operation. Driver reacts to STEP input
-
-        Args:
-            vactual (int): value for VACTUAL
-            duration (int): after this vactual will be set to 0 (Default value = 0)
-            acceleration (int): use this for a velocity ramp (Default value = 0)
-            show_stallguard_result (bool): prints StallGuard Result during movement
-                (Default value = False)
-            show_tstep (bool): prints TStep during movement (Default value = False)
-
-        Returns:
-            stop (enum): how the movement was finished
-        """
+ 
         self._stop = self.NO
         current_vactual = 0
         sleeptime = 0.05
@@ -852,21 +839,15 @@ class TMCStepper():
         return self._movement_phase
 
 #-----------------------------------------------------------------------------------------------
-    def run_to_position_steps(self, steps, movement_abs_rel = None):
-        if movement_abs_rel is None:
-            movement_abs_rel = self._movement_abs_rel
-
-        if movement_abs_rel == MovementAbsRel.RELATIVE:
-            self._target_pos = self._current_pos + steps
-        else:
-            self._target_pos = steps
-
+    def run_to_position_steps(self, steps, callback=None):
+        self._target_pos = self._current_pos + steps       
         self._stop = StopMode.NO
         self._step_interval = 0
         self._speed = 0.0
         self._n = 0
         self.compute_new_speed()
         while self.run(): #returns false, when target position is reached
+            if (callback != None): callback()
             if self._stop == StopMode.HARDSTOP:
                 break
 
@@ -931,7 +912,7 @@ class TMCStepper():
         if self._n == 0:
             # First step from stopped
             self._cn = self._c0
-            self._pin_step.value=False
+            self._pin_step.SetValue(False)
             if distance_to > 0:
                 self.set_direction_pin_or_reg(1)
             else:
@@ -969,10 +950,9 @@ class TMCStepper():
 
 #-----------------------------------------------------------------------------------------------
     def make_a_step(self):
-
-        self._pin_step.value=True
+        self._pin_step.SetValue(True)
         time.sleep(1/1000/1000)
-        self._pin_step.value=False
+        self._pin_step.SetValue(False)
         time.sleep(1/1000/1000)
 
 #-----------------------------------------------------------------------------------------------
